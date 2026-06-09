@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /out/
+/.local-data/
 
 # production
 /build
@@ -29,9 +30,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.next-dev*.log
+
+# python
+__pycache__/
+*.py[cod]
 
 # env files (can opt-in for committing if needed)
 .env*
+.env.local
 
 # vercel
 .vercel
