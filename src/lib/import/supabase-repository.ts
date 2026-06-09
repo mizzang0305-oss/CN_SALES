@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createNormalizedRows } from "@/lib/import/normalization";
+import { classifyUsageStatus, defaultPartName, normalizeMasterName } from "@/lib/import/master-data";
 import type { ConfirmResult, DashboardTotals, ImportPreviewRecord, ImportRepository } from "@/lib/import/types";
 import type { ParsedLedgerRow } from "@/lib/types";
 
@@ -26,8 +27,7 @@ export class SupabaseImportRepository implements ImportRepository {
 
   async createPreview(input: Parameters<ImportRepository["createPreview"]>[0]): Promise<ImportPreviewRecord> {
     const context = await this.contextPromise;
-    const partId = context.partIdByCode.get(input.partCode);
-    if (!partId) throw new Error("Selected sales part was not found.");
+    const partId = await this.upsertSalesPart(context, input.partCode);
 
     const { data: upload, error: uploadError } = await this.db()
       .from("ledger_uploads")
@@ -122,8 +122,7 @@ export class SupabaseImportRepository implements ImportRepository {
 
   async confirmPreview(preview: ImportPreviewRecord): Promise<ConfirmResult> {
     const context = await this.contextPromise;
-    const partId = context.partIdByCode.get(preview.summary.partCode);
-    if (!partId) throw new Error("Selected sales part was not found.");
+    const partId = await this.upsertSalesPart(context, preview.summary.partCode);
 
     if (preview.summary.errorRows > 0) {
       return {
@@ -163,6 +162,9 @@ export class SupabaseImportRepository implements ImportRepository {
           .single();
         if (error) throw new Error(`Insert ledger row failed: ${error.message}`);
         changedRows.push({ ...row, id: insertedRow.id });
+        if (row.rowType === "item_detail" && customerId && productId) {
+          await this.upsertCustomerProductUsage(context.companyId, partId, customerId, productId, row);
+        }
         inserted += 1;
         continue;
       }
@@ -190,6 +192,9 @@ export class SupabaseImportRepository implements ImportRepository {
       if (updateError) throw new Error(`Update ledger row failed: ${updateError.message}`);
 
       changedRows.push({ ...row, id: existing.id });
+      if (row.rowType === "item_detail" && customerId && productId) {
+        await this.upsertCustomerProductUsage(context.companyId, partId, customerId, productId, row);
+      }
       updated += 1;
     }
 
@@ -328,26 +333,141 @@ export class SupabaseImportRepository implements ImportRepository {
     };
   }
 
+  private async upsertSalesPart(context: SupabaseContext, partCode: string) {
+    const existingPartId = context.partIdByCode.get(partCode);
+    if (existingPartId) return existingPartId;
+
+    const now = new Date().toISOString();
+    const { data, error } = await this.db()
+      .from("sales_parts")
+      .upsert({
+        company_id: context.companyId,
+        part_code: partCode,
+        part_name: defaultPartName(partCode),
+        source: "ledger",
+        is_active: true,
+        first_seen_at: now,
+        last_seen_at: now,
+      }, { onConflict: "company_id,part_code" })
+      .select("id")
+      .single();
+    if (error) throw new Error(`Upsert sales part failed: ${error.message}`);
+
+    context.partIdByCode.set(partCode, data.id as string);
+    return data.id as string;
+  }
+
   private async upsertCustomer(companyId: string, partId: string, customerName: string | null) {
     if (!customerName) return null;
-    const customerCode = customerName;
+    const normalizedCustomerName = normalizeMasterName(customerName);
+    const customerCode = normalizedCustomerName || customerName;
+    const now = new Date().toISOString();
     const { data, error } = await this.db()
       .from("customers")
-      .upsert({ company_id: companyId, part_id: partId, customer_code: customerCode, customer_name: customerName }, { onConflict: "company_id,customer_code" })
+      .upsert({
+        company_id: companyId,
+        part_id: partId,
+        customer_code: customerCode,
+        customer_name: customerName,
+        raw_customer_name: customerName,
+        normalized_customer_name: normalizedCustomerName,
+        source: "ledger",
+        first_seen_at: now,
+        last_seen_at: now,
+      }, { onConflict: "company_id,customer_code" })
       .select("id")
       .single();
     if (error) throw new Error(`Upsert customer failed: ${error.message}`);
+
+    const { error: aliasError } = await this.db()
+      .from("customer_aliases")
+      .upsert({
+        company_id: companyId,
+        customer_id: data.id,
+        alias_name: customerName,
+        normalized_alias_name: normalizedCustomerName,
+        source: "ledger",
+      }, { onConflict: "company_id,normalized_alias_name" });
+    if (aliasError) throw new Error(`Upsert customer alias failed: ${aliasError.message}`);
+
     return data.id as string;
   }
 
   private async upsertProduct(companyId: string, productName: string) {
+    const normalizedProductName = normalizeMasterName(productName);
+    const now = new Date().toISOString();
     const { data, error } = await this.db()
       .from("products")
-      .upsert({ company_id: companyId, product_name: productName }, { onConflict: "company_id,product_name" })
+      .upsert({
+        company_id: companyId,
+        product_name: productName,
+        raw_product_name: productName,
+        normalized_product_name: normalizedProductName,
+        source: "ledger",
+        first_seen_at: now,
+        last_seen_at: now,
+      }, { onConflict: "company_id,product_name" })
       .select("id")
       .single();
     if (error) throw new Error(`Upsert product failed: ${error.message}`);
+
+    const { error: aliasError } = await this.db()
+      .from("product_aliases")
+      .upsert({
+        company_id: companyId,
+        product_id: data.id,
+        alias_name: productName,
+        normalized_alias_name: normalizedProductName,
+        source: "ledger",
+      }, { onConflict: "company_id,normalized_alias_name" });
+    if (aliasError) throw new Error(`Upsert product alias failed: ${aliasError.message}`);
+
     return data.id as string;
+  }
+
+  private async upsertCustomerProductUsage(
+    companyId: string,
+    partId: string,
+    customerId: string,
+    productId: string,
+    row: ParsedLedgerRow,
+  ) {
+    const { data: existing, error: existingError } = await this.db()
+      .from("customer_product_usage")
+      .select("first_purchase_date, last_purchase_date, purchase_count, total_quantity, total_sales_amount")
+      .eq("company_id", companyId)
+      .eq("customer_id", customerId)
+      .eq("product_id", productId)
+      .eq("part_id", partId)
+      .maybeSingle();
+    if (existingError) throw new Error(`Fetch customer product usage failed: ${existingError.message}`);
+
+    const firstPurchaseDate = minDate(existing?.first_purchase_date ?? null, row.ledgerDate);
+    const lastPurchaseDate = maxDate(existing?.last_purchase_date ?? null, row.ledgerDate);
+    const usageStatus = classifyUsageStatus({
+      firstPurchaseDate,
+      lastPurchaseDate,
+      referenceDate: row.ledgerDate,
+    });
+
+    const { error } = await this.db()
+      .from("customer_product_usage")
+      .upsert({
+        company_id: companyId,
+        customer_id: customerId,
+        product_id: productId,
+        part_id: partId,
+        first_purchase_date: firstPurchaseDate,
+        last_purchase_date: lastPurchaseDate,
+        last_quantity: row.quantity,
+        last_unit_price: row.unitPrice,
+        purchase_count: Number(existing?.purchase_count ?? 0) + 1,
+        total_quantity: Number(existing?.total_quantity ?? 0) + row.quantity,
+        total_sales_amount: Number(existing?.total_sales_amount ?? 0) + row.salesAmount,
+        usage_status: usageStatus,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "company_id,customer_id,product_id,part_id" });
+    if (error) throw new Error(`Upsert customer product usage failed: ${error.message}`);
   }
 
   private async deleteNormalizedForLedgerRow(ledgerRowId: string) {
@@ -398,4 +518,16 @@ export class SupabaseImportRepository implements ImportRepository {
     if (arRows.length) await this.db().from("ar_snapshots").insert(arRows);
     if (priceRows.length) await this.db().from("product_price_history").insert(priceRows);
   }
+}
+
+function minDate(left: string | null, right: string | null) {
+  if (!left) return right;
+  if (!right) return left;
+  return left <= right ? left : right;
+}
+
+function maxDate(left: string | null, right: string | null) {
+  if (!left) return right;
+  if (!right) return left;
+  return left >= right ? left : right;
 }

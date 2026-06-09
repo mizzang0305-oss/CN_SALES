@@ -1,4 +1,5 @@
 import { parseLedgerRows, summarizePreview } from "@/lib/ledger/rules";
+import { PART_REQUIRED, resolveImportPartCode } from "@/lib/import/master-data";
 import type { ImportPreviewRecord, ImportRepository } from "@/lib/import/types";
 import type { LedgerRawRow } from "@/lib/types";
 import type { UploadStorageAdapter } from "@/lib/storage/types";
@@ -15,30 +16,38 @@ export class ImportService {
 
   async preview(input: { file: File; partCode: string; periodStart: string; periodEnd: string }): Promise<ImportPreviewRecord> {
     const stored = await this.options.storage.save(input.file);
+    const selectedPartCode = input.partCode?.trim() ?? "";
     const rawRows = await this.options.parseRows({
       file: input.file,
       storagePath: stored.path,
-      partCode: input.partCode,
+      partCode: selectedPartCode,
       periodEnd: input.periodEnd,
     });
+    const partResolution = resolveImportPartCode({
+      selectedPartCode,
+      fileName: stored.fileName || input.file.name,
+      rows: rawRows,
+    });
+    const partCode = partResolution.partCode || PART_REQUIRED;
+    const blockedReasons = [...(this.options.blockedReasons ?? []), ...partResolution.blockedReasons];
 
     const firstPass = parseLedgerRows({
       rows: rawRows,
-      partCode: input.partCode,
+      partCode,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
     });
     const existingHashes = await this.options.repository.getExistingContentHashes(firstPass.map((row) => row.identityHash));
     const rows = parseLedgerRows({
       rows: rawRows,
-      partCode: input.partCode,
+      partCode,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
       existingHashes,
     });
     const summary = summarizePreview({
       fileName: stored.fileName,
-      partCode: input.partCode,
+      partCode: partResolution.partCode,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
       rows,
@@ -51,14 +60,17 @@ export class ImportService {
     return this.options.repository.createPreview({
       fileName: stored.fileName,
       storagePath: stored.path,
-      partCode: input.partCode,
+      partCode: partResolution.partCode,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
-      summary,
+      summary: {
+        ...summary,
+        canCommit: summary.canCommit && blockedReasons.length === 0,
+      },
       rows,
       rowTypeCounts,
       sampleRows: rows.slice(0, 20),
-      blockedReasons: this.options.blockedReasons ?? [],
+      blockedReasons,
     });
   }
 
@@ -78,7 +90,8 @@ export class ImportService {
       };
     }
 
-    if ((this.options.blockedReasons ?? []).length > 0) {
+    const blockedReasons = [...(this.options.blockedReasons ?? []), ...preview.blockedReasons];
+    if (blockedReasons.length > 0) {
       return {
         status: "blocked" as const,
         previewId,
@@ -88,7 +101,7 @@ export class ImportService {
         errors: 0,
         missingCandidates: 0,
         normalized: { salesTransactions: 0, receiptTransactions: 0, arSnapshots: 0 },
-        blockedReasons: this.options.blockedReasons ?? [],
+        blockedReasons,
       };
     }
 
