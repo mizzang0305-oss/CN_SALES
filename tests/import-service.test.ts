@@ -10,6 +10,11 @@ const baseRows: LedgerRawRow[] = [
   { 일자: "2026-06-07", 거래처명: "한빛마트", 구분: "입금", 입금액: 700, 입금할인: 50 },
 ];
 
+const masterRows: LedgerRawRow[] = [
+  { date: "2026-06-09", customer_name: "Seoul Mart", row_type: "customer_total", sales_amount: 1000, ar_balance: 3000 },
+  { date: "2026-06-09", customer_name: "Seoul Mart", product_name: "Kimchi 10kg", quantity: 2, unit_price: 500, sales_amount: 1000 },
+];
+
 function createService() {
   const repository = new MemoryImportRepository();
   const service = new ImportService({
@@ -92,5 +97,105 @@ describe("Phase 2 Supabase-style import flow", () => {
     expect(repository.normalized.salesTransactions).toHaveLength(1);
     expect(repository.normalized.arSnapshots.at(-1)?.arBalance).toBe(3300);
     expect(repository.dashboardTotals().salesAmount).toBe(1200);
+  });
+
+  it("resolves missing part code from ledger file name before preview is stored", async () => {
+    const repository = new MemoryImportRepository();
+    const service = new ImportService({
+      repository,
+      storage: new MemoryStorageAdapter(),
+      parseRows: async () => masterRows,
+    });
+
+    const preview = await service.preview({
+      file: new File(["fixture"], "2026-06_4파트_ledger.xlsx"),
+      partCode: "",
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+    });
+    await service.confirm(preview.previewId);
+
+    expect(preview.summary.partCode).toBe("4");
+    expect(preview.blockedReasons).toEqual([]);
+    expect(repository.salesParts).toMatchObject([{ partCode: "4", partName: "4파트", source: "ledger" }]);
+  });
+
+  it("resolves missing part code from ledger rows and blocks when no part is available", async () => {
+    const blockedRepository = new MemoryImportRepository();
+    const blockedService = new ImportService({
+      repository: blockedRepository,
+      storage: new MemoryStorageAdapter(),
+      parseRows: async () => masterRows,
+    });
+
+    const blockedPreview = await blockedService.preview({
+      file: new File(["fixture"], "ledger.xlsx"),
+      partCode: "",
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+    });
+    const blockedConfirm = await blockedService.confirm(blockedPreview.previewId);
+
+    expect(blockedPreview.blockedReasons).toContain("PART_REQUIRED");
+    expect(blockedPreview.summary.canCommit).toBe(false);
+    expect(blockedConfirm.status).toBe("blocked");
+    expect(blockedRepository.ledgerRows).toHaveLength(0);
+
+    const rowPartRepository = new MemoryImportRepository();
+    const rowPartService = new ImportService({
+      repository: rowPartRepository,
+      storage: new MemoryStorageAdapter(),
+      parseRows: async () => masterRows.map((row) => ({ ...row, part_name: "7파트" })),
+    });
+    const rowPartPreview = await rowPartService.preview({
+      file: new File(["fixture"], "ledger.xlsx"),
+      partCode: "",
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+    });
+
+    expect(rowPartPreview.summary.partCode).toBe("7");
+    expect(rowPartPreview.blockedReasons).toEqual([]);
+  });
+
+  it("upserts ledger-derived customer, product, aliases, and usage without duplicating skipped confirms", async () => {
+    const repository = new MemoryImportRepository();
+    const service = new ImportService({
+      repository,
+      storage: new MemoryStorageAdapter(),
+      parseRows: async () => masterRows,
+    });
+
+    const preview = await service.preview({
+      file: new File(["fixture"], "ledger.xlsx"),
+      partCode: "A",
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+    });
+    await service.confirm(preview.previewId);
+    await service.confirm(preview.previewId);
+
+    expect(repository.salesParts).toMatchObject([{ partCode: "A", partName: "A파트" }]);
+    expect(repository.customers).toMatchObject([
+      { rawCustomerName: "Seoul Mart", normalizedCustomerName: "seoulmart", partCode: "A" },
+    ]);
+    expect(repository.customerAliases).toMatchObject([
+      { aliasName: "Seoul Mart", normalizedAliasName: "seoulmart" },
+    ]);
+    expect(repository.products).toMatchObject([
+      { rawProductName: "Kimchi 10kg", normalizedProductName: "kimchi10kg" },
+    ]);
+    expect(repository.productAliases).toMatchObject([
+      { aliasName: "Kimchi 10kg", normalizedAliasName: "kimchi10kg" },
+    ]);
+    expect(repository.customerProductUsage).toMatchObject([
+      {
+        partCode: "A",
+        purchaseCount: 1,
+        totalQuantity: 2,
+        totalSalesAmount: 1000,
+        usageStatus: "new",
+      },
+    ]);
   });
 });
