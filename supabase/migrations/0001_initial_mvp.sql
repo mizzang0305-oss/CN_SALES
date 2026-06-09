@@ -537,22 +537,6 @@ create policy "company write visits" on cn_sales.visit_logs for insert with chec
 create policy "company read promises" on cn_sales.task_promises for select using (company_id = cn_sales.current_company_id());
 create policy "company write promises" on cn_sales.task_promises for insert with check (company_id = cn_sales.current_company_id());
 
-insert into storage.buckets (id, name, public)
-values ('cn-sales-ledgers', 'cn-sales-ledgers', false)
-on conflict (id) do nothing;
-
-create policy "admin ledger upload objects read" on storage.objects
-for select using (
-  bucket_id = 'cn-sales-ledgers'
-  and cn_sales.current_user_role() = 'admin'
-);
-
-create policy "admin ledger upload objects write" on storage.objects
-for insert with check (
-  bucket_id = 'cn-sales-ledgers'
-  and cn_sales.current_user_role() = 'admin'
-);
-
 grant usage on schema cn_sales to authenticated;
 grant usage on schema cn_sales to service_role;
 

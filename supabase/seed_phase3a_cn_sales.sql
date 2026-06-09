@@ -1,12 +1,27 @@
 -- Phase 3-A seed draft only. Do not apply without operator approval.
--- Replace :admin_auth_user_id with an existing auth.users.id at runtime.
--- This script intentionally does not insert into auth.users.
+-- IMPORTANT: Replace <ADMIN_AUTH_USER_ID> with an existing auth.users.id before running in Supabase SQL Editor.
+-- cn_sales.profiles.id references auth.users.id. This seed only reads Auth users to verify the id exists.
+-- If <ADMIN_AUTH_USER_ID> is still present, the SQL will fail before any seed writes run.
 
 begin;
 
-with company_seed as (
+with seed_input as (
+  select
+    '<ADMIN_AUTH_USER_ID>'::uuid as admin_auth_user_id,
+    'CN Sales Admin'::text as admin_full_name
+),
+seed_guard as (
+  select
+    case
+      when exists (select 1 from auth.users where id = seed_input.admin_auth_user_id) then 1
+      else 1 / 0
+    end as ok
+  from seed_input
+),
+company_seed as (
   insert into cn_sales.companies (id, name)
-  values ('00000000-0000-4000-8000-000000000001', 'CN Food')
+  select '11111111-1111-4111-8111-111111111111'::uuid, 'CN Food'
+  from seed_guard
   on conflict (id) do update set name = excluded.name
   returning id
 ),
@@ -32,8 +47,9 @@ upserted_parts as (
 ),
 admin_profile as (
   insert into cn_sales.profiles (id, company_id, full_name, role)
-  select :'admin_auth_user_id'::uuid, company_seed.id, 'CN Sales Admin', 'admin'::cn_sales.user_role
+  select seed_input.admin_auth_user_id, company_seed.id, seed_input.admin_full_name, 'admin'::cn_sales.user_role
   from company_seed
+  cross join seed_input
   on conflict (id)
   do update set
     company_id = excluded.company_id,
@@ -64,7 +80,7 @@ do update set
   rep_name = excluded.rep_name;
 
 with company_seed as (
-  select id from cn_sales.companies where id = '00000000-0000-4000-8000-000000000001'
+  select id from cn_sales.companies where id = '11111111-1111-4111-8111-111111111111'
 ),
 target_seed(part_code, sales_target, receipt_target) as (
   values
