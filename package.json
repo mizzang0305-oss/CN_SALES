@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "obsidian:cn-sales": "node scripts/obsidian/write-cn-sales-status.mjs",
     "test:worker": "python -m unittest worker/test_parser.py"
   },
   "dependencies": {
