@@ -256,11 +256,15 @@ export class SupabaseImportRepository implements ImportRepository {
     const { data: auth } = await supabase.auth.getUser();
     if (!auth.user) throw new Error("Supabase session is missing.");
 
+    return SupabaseImportRepository.loadContextForProfile(supabase, auth.user.id);
+  }
+
+  static async loadContextForProfile(supabase: SupabaseClient, profileId: string): Promise<SupabaseContext> {
     const db = supabase.schema("cn_sales");
     const { data: profile, error: profileError } = await db
       .from("profiles")
       .select("id, company_id, role")
-      .eq("id", auth.user.id)
+      .eq("id", profileId)
       .single();
     if (profileError || !profile) throw new Error("Supabase profile is missing.");
 
