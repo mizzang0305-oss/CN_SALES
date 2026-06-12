@@ -11,6 +11,8 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DashboardTotals, ImportRepository } from "@/lib/import/types";
 import type { LedgerRawRow } from "@/lib/types";
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function createImportService(parseRows = parseWithPythonWorker) {
   const status = getRuntimeEnvStatus();
   if (!status.canWrite) {
@@ -42,7 +44,20 @@ export async function createImportService(parseRows = parseWithPythonWorker) {
     };
   }
 
-  const contextPromise = SupabaseImportRepository.loadContext(sessionClient);
+  const contextPromise = SupabaseImportRepository.loadContext(sessionClient).catch((error) => {
+    const adminProfileId = process.env.CN_SALES_ADMIN_AUTH_USER_ID;
+    const canUseLocalAdminFallback =
+      process.env.NODE_ENV !== "production" &&
+      error instanceof Error &&
+      error.message === "Supabase session is missing." &&
+      Boolean(adminProfileId && uuidPattern.test(adminProfileId));
+
+    if (canUseLocalAdminFallback) {
+      return SupabaseImportRepository.loadContextForProfile(serviceRoleClient, adminProfileId as string);
+    }
+
+    throw error;
+  });
   const repository = new SupabaseImportRepository(serviceRoleClient, contextPromise);
   return {
     status,

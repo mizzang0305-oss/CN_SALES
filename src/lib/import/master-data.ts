@@ -1,6 +1,7 @@
 import type { LedgerRawRow } from "@/lib/types";
 
 export const PART_REQUIRED = "PART_REQUIRED";
+export const PART_FILE_MISMATCH = "PART_FILE_MISMATCH";
 
 const partColumnKeys = ["part_code", "part", "part_name", "sales_part", "team", "department", "파트", "부서", "팀"];
 
@@ -37,7 +38,7 @@ export function normalizePartCode(value?: string | number | null) {
   return text.replace(/\s+/g, "").toUpperCase();
 }
 
-function extractPartCodeFromText(value?: string | number | null) {
+export function extractPartCodeFromText(value?: string | number | null) {
   if (value === null || value === undefined) return "";
   const text = String(value).normalize("NFKC").trim();
   if (!text) return "";
@@ -61,6 +62,22 @@ export function normalizeMasterName(value: string) {
 
 export function defaultPartName(partCode: string) {
   return `${partCode}파트`;
+}
+
+export function getSelectedFilePartMismatch(input: { selectedPartCode?: string | number | null; fileName?: string | null }) {
+  const selectedPartCode = normalizePartCode(input.selectedPartCode);
+  const filePartCode = extractPartCodeFromText(input.fileName);
+
+  if (!selectedPartCode || !filePartCode || selectedPartCode === filePartCode) {
+    return null;
+  }
+
+  return {
+    code: PART_FILE_MISMATCH,
+    selectedPartCode,
+    filePartCode,
+    message: `파일명은 ${filePartCode}파트로 보이지만 선택된 파트는 ${selectedPartCode}파트입니다.`,
+  };
 }
 
 export function classifyUsageStatus(input: {
