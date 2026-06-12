@@ -5,8 +5,7 @@ import { AlertTriangle, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatNumber, formatWon } from "@/lib/format";
 import { extractPartCodeFromText, getSelectedFilePartMismatch } from "@/lib/import/master-data";
-import type { ImportPreviewRecord } from "@/lib/import/types";
-import type { LedgerRawRow } from "@/lib/types";
+import type { ImportAction, LedgerRawRow, LedgerRowType, UploadPreviewSummary } from "@/lib/types";
 
 const sampleRows: LedgerRawRow[] = [
   { 일자: "2026-06-07", 거래처명: "한빛마트", 구분: "거래처계", 매출액: 18400000, 외상잔액: 31800000 },
@@ -19,7 +18,33 @@ const partOptions = ["1", "4", "5", "6", "7", "9", "10", "11"].map((partCode) =>
   label: `${partCode}파트`,
 }));
 
-type PreviewResponse = ImportPreviewRecord & { mode?: string; blocked_reasons?: string[] };
+type PreviewRow = {
+  rowKey: string;
+  rowIndex: number;
+  rowType: LedgerRowType;
+  customerName: string | null;
+  salesAmount: number;
+  receiptAmount: number;
+  receiptDiscount: number;
+  action: ImportAction;
+};
+
+type PreviewResponse = {
+  ok?: boolean;
+  previewId: string;
+  summary: UploadPreviewSummary;
+  rows: PreviewRow[];
+  rowTypeCounts: Record<string, number>;
+  blockedReasons?: string[];
+  blocked_reasons?: string[];
+  mode?: string;
+  apply?: { enabled: boolean; reason: string };
+};
+
+type PreviewErrorResponse = {
+  error?: string | { code?: string; message?: string };
+  blocked_reasons?: string[];
+};
 
 export function UploadCenter() {
   const [partCode, setPartCode] = useState("1");
@@ -71,9 +96,9 @@ export function UploadCenter() {
         });
       }
 
-      const result = (await response.json()) as PreviewResponse & { error?: string };
+      const result = (await response.json()) as PreviewResponse & PreviewErrorResponse;
       if (!response.ok) {
-        const reason = result.blocked_reasons?.join(" ") || result.error || "미리보기 생성 실패";
+        const reason = getPreviewErrorMessage(result);
         throw new Error(reason);
       }
 
@@ -237,7 +262,7 @@ export function UploadCenter() {
               </thead>
               <tbody>
                 {preview.rows.map((row) => (
-                  <tr key={row.identityHash} className="border-t border-slate-200">
+                  <tr key={row.rowKey} className="border-t border-slate-200">
                     <td className="px-4 py-3">{row.rowIndex}</td>
                     <td className="px-4 py-3">{row.rowType}</td>
                     <td className="px-4 py-3">{row.customerName}</td>
@@ -263,4 +288,10 @@ export function UploadCenter() {
       </section>
     </div>
   );
+}
+
+function getPreviewErrorMessage(result: PreviewErrorResponse) {
+  if (typeof result.error === "object" && result.error?.message) return result.error.message;
+  if (typeof result.error === "string" && result.error) return result.error;
+  return result.blocked_reasons?.join(" ") || "미리보기 생성 실패";
 }

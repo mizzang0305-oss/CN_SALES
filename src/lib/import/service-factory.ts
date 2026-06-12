@@ -8,10 +8,74 @@ import { LocalUploadStorageAdapter } from "@/lib/storage/local-storage";
 import { SupabaseUploadStorageAdapter } from "@/lib/storage/supabase-storage";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import type { DashboardTotals, ImportRepository } from "@/lib/import/types";
+import type { ConfirmResult, DashboardTotals, ImportPreviewRecord, ImportRepository } from "@/lib/import/types";
+import type { StoredUploadFile, UploadStorageAdapter } from "@/lib/storage/types";
 import type { LedgerRawRow } from "@/lib/types";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const previewOnlyReason = "PREVIEW_ONLY";
+
+class PreviewOnlyStorageAdapter implements UploadStorageAdapter {
+  async save(file: File): Promise<StoredUploadFile> {
+    return {
+      path: `preview-only://${crypto.randomUUID()}/${file.name}`,
+      fileName: file.name,
+      size: file.size,
+    };
+  }
+}
+
+class PreviewOnlyImportRepository implements ImportRepository {
+  async createPreview(input: Parameters<ImportRepository["createPreview"]>[0]): Promise<ImportPreviewRecord> {
+    return {
+      previewId: crypto.randomUUID(),
+      uploadId: input.summary.fileName,
+      uploadRecordId: crypto.randomUUID(),
+      storagePath: input.storagePath,
+      summary: input.summary,
+      rows: input.rows,
+      blockedReasons: input.blockedReasons,
+      rowTypeCounts: input.rowTypeCounts,
+      sampleRows: input.sampleRows,
+    };
+  }
+
+  async getExistingContentHashes() {
+    return {};
+  }
+
+  async getPreview() {
+    return null;
+  }
+
+  async confirmPreview(preview: ImportPreviewRecord): Promise<ConfirmResult> {
+    return {
+      status: "blocked",
+      previewId: preview.previewId,
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      errors: 0,
+      missingCandidates: 0,
+      normalized: { salesTransactions: 0, receiptTransactions: 0, arSnapshots: 0 },
+      blockedReasons: [previewOnlyReason],
+    };
+  }
+
+  async getDashboardTotals(): Promise<DashboardTotals> {
+    return {
+      salesAmount: 0,
+      receiptAmount: 0,
+      receiptRate: 0,
+      arBalance: 0,
+      targetAmount: 0,
+      targetRate: 0,
+      parts: [],
+      mode: "fixture",
+      blockedReasons: [previewOnlyReason],
+    };
+  }
+}
 
 export async function createImportService(parseRows = parseWithPythonWorker) {
   const status = getRuntimeEnvStatus();
@@ -66,6 +130,26 @@ export async function createImportService(parseRows = parseWithPythonWorker) {
       storage: new SupabaseUploadStorageAdapter(serviceRoleClient),
       parseRows,
       blockedReasons: [],
+    }),
+    repository,
+  };
+}
+
+export async function createPreviewImportService(parseRows = parseWithPythonWorker) {
+  const status = {
+    ...getRuntimeEnvStatus(),
+    mode: "fixture" as const,
+    canWrite: false,
+    blockedReasons: [previewOnlyReason],
+  };
+  const repository = new PreviewOnlyImportRepository();
+  return {
+    status,
+    service: new ImportService({
+      repository,
+      storage: new PreviewOnlyStorageAdapter(),
+      parseRows,
+      blockedReasons: [previewOnlyReason],
     }),
     repository,
   };
