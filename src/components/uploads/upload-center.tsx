@@ -5,7 +5,7 @@ import { AlertTriangle, CheckCircle2, FileSpreadsheet, UploadCloud } from "lucid
 import { Button } from "@/components/ui/button";
 import { formatNumber, formatWon } from "@/lib/format";
 import { extractPartCodeFromText, getSelectedFilePartMismatch } from "@/lib/import/master-data";
-import type { LedgerRawRow, UploadPreviewSummary } from "@/lib/types";
+import type { LedgerRawRow, RowIssueReasonCounts, UploadPreviewSummary } from "@/lib/types";
 
 const sampleRows: LedgerRawRow[] = [
   { date: "2026-06-07", customer_name: "Synthetic Customer", row_type: "customer_total", sales_amount: 18400000, ar_balance: 31800000 },
@@ -29,7 +29,13 @@ type OperatorConfirmations = Record<keyof typeof confirmationLabels, boolean>;
 type OperationalPreviewSummary = {
   totalRows: number;
   normalRows: number;
+  excludedRows: number;
+  warningRows: number;
+  errorRows: number;
   excludedOrErrorRows: number;
+  excludedByReason: RowIssueReasonCounts;
+  warningByReason: RowIssueReasonCounts;
+  errorByReason: RowIssueReasonCounts;
   partMismatch: boolean;
   selectedPartCode: string;
   filePartCode: string | null;
@@ -65,8 +71,11 @@ type PreviewErrorResponse = {
 type DryRunReport = {
   ok?: boolean;
   dryRun?: boolean;
+  dryRunReady?: boolean;
   applyReady?: boolean;
   applyBlockedReason?: string | null;
+  actualApplyReady?: boolean;
+  actualApplyBlockedReason?: string | null;
   report?: {
     import_batch_id?: string;
     expected_affected_rows?: number;
@@ -75,7 +84,12 @@ type DryRunReport = {
     status?: string;
     total_rows?: number;
     normal_rows?: number;
+    excluded_rows?: number;
+    warning_rows?: number;
     error_rows?: number;
+    excluded_by_reason?: RowIssueReasonCounts;
+    warning_by_reason?: RowIssueReasonCounts;
+    error_by_reason?: RowIssueReasonCounts;
     amount_total?: number;
     account_count?: number;
     item_count?: number;
@@ -364,7 +378,9 @@ export function UploadCenter() {
               {[
                 ["총 row 수", formatNumber(preview.operationalSummary.totalRows)],
                 ["정상 row 수", formatNumber(preview.operationalSummary.normalRows)],
-                ["제외/오류 row 수", formatNumber(preview.operationalSummary.excludedOrErrorRows)],
+                ["제외 row 수", formatNumber(preview.operationalSummary.excludedRows)],
+                ["경고 row 수", formatNumber(preview.operationalSummary.warningRows)],
+                ["오류 row 수", formatNumber(preview.operationalSummary.errorRows)],
                 ["파트 불일치", preview.operationalSummary.partMismatch ? "있음" : "없음"],
                 ["금액 합계", formatWon(preview.operationalSummary.amountTotal)],
                 ["거래처 수", formatNumber(preview.operationalSummary.customerCount)],
@@ -389,6 +405,12 @@ export function UploadCenter() {
                 <div>sourceFileHash: {shortHash(preview.sourceFileHash)}</div>
                 <div>previewChecksum: {shortHash(preview.previewChecksum)}</div>
               </div>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-3">
+              <ReasonCounts title="excludedByReason" counts={preview.operationalSummary.excludedByReason} />
+              <ReasonCounts title="warningByReason" counts={preview.operationalSummary.warningByReason} />
+              <ReasonCounts title="errorByReason" counts={preview.operationalSummary.errorByReason} />
             </div>
 
             <div className="rounded-md bg-slate-50 p-3 text-[15px] leading-7">
@@ -416,12 +438,22 @@ export function UploadCenter() {
                 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   <ReportField label="import_batch_id" value={dryRunReport.report?.import_batch_id ?? "-"} />
                   <ReportField label="expected_affected_rows" value={formatNumber(dryRunReport.report?.expected_affected_rows ?? 0)} />
+                  <ReportField label="excluded_rows" value={formatNumber(dryRunReport.report?.excluded_rows ?? 0)} />
+                  <ReportField label="warning_rows" value={formatNumber(dryRunReport.report?.warning_rows ?? 0)} />
                   <ReportField label="error_rows" value={formatNumber(dryRunReport.report?.error_rows ?? 0)} />
                   <ReportField label="operator" value={dryRunReport.report?.operator ?? "-"} />
                   <ReportField label="created_at" value={dryRunReport.report?.created_at ?? "-"} />
                   <ReportField label="status" value={dryRunReport.report?.status ?? dryRunReport.error?.code ?? "-"} />
                 </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                  <ReasonCounts title="dryRun excludedByReason" counts={dryRunReport.report?.excluded_by_reason ?? {}} />
+                  <ReasonCounts title="dryRun warningByReason" counts={dryRunReport.report?.warning_by_reason ?? {}} />
+                  <ReasonCounts title="dryRun errorByReason" counts={dryRunReport.report?.error_by_reason ?? {}} />
+                </div>
                 <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-[14px] text-slate-700">
+                  dryRunReady: {dryRunReport.dryRunReady ? "true" : "false"} / actualApplyReady: {dryRunReport.actualApplyReady ? "true" : "false"}
+                  {dryRunReport.actualApplyBlockedReason ? ` / ${dryRunReport.actualApplyBlockedReason}` : ""}
+                  <br />
                   applyReady: {dryRunReport.applyReady ? "true" : "false"}
                   {dryRunReport.applyBlockedReason ? ` / ${dryRunReport.applyBlockedReason}` : ""}
                 </div>
@@ -441,6 +473,28 @@ function ReportField({ label, value }: { label: string; value: string }) {
     <div className="rounded-md bg-slate-50 p-3">
       <div className="text-[14px] text-slate-500">{label}</div>
       <div className="mt-1 break-all text-[16px] font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function ReasonCounts({ title, counts }: { title: string; counts: RowIssueReasonCounts }) {
+  const entries = Object.entries(counts);
+
+  return (
+    <div className="rounded-md border border-slate-200 p-3 text-[14px] leading-6">
+      <div className="font-semibold text-slate-700">{title}</div>
+      {entries.length ? (
+        <ul className="mt-2 space-y-1">
+          {entries.map(([reason, count]) => (
+            <li key={reason} className="flex justify-between gap-3">
+              <span className="break-all text-slate-600">{reason}</span>
+              <span className="font-semibold tabular-nums">{formatNumber(count)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="mt-2 text-slate-500">none</div>
+      )}
     </div>
   );
 }

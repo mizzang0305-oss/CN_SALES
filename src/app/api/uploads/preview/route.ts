@@ -122,6 +122,8 @@ export async function POST(request: Request) {
         previewOnly: true,
         normalizedTableWrite: false,
         totalRows: preview.summary.totalRows,
+        excludedRows: preview.summary.excludedRows,
+        warningRows: preview.summary.warningRows,
         errorRows: preview.summary.errorRows,
         canCommit: preview.summary.canCommit,
       });
@@ -166,6 +168,8 @@ export async function POST(request: Request) {
       previewOnly: true,
       normalizedTableWrite: false,
       totalRows: preview.summary.totalRows,
+      excludedRows: preview.summary.excludedRows,
+      warningRows: preview.summary.warningRows,
       errorRows: preview.summary.errorRows,
       canCommit: preview.summary.canCommit,
     });

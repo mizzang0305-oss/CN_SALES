@@ -1,4 +1,5 @@
 import { stableHash } from "@/lib/ledger/hash";
+import { isCommittablePreviewRow, summarizeRowIssues } from "@/lib/import/row-classification";
 import type { ImportAction, LedgerRawRow, LedgerRowType, ParsedLedgerRow } from "@/lib/types";
 
 const emptyRow: LedgerRawRow = {};
@@ -137,7 +138,8 @@ export function summarizePreview(input: {
   rows: ReturnType<typeof parseLedgerRows>;
 }) {
   const rows = input.rows;
-  const successfulRows = rows.filter((row) => row.action !== "error");
+  const issueSummary = summarizeRowIssues(rows);
+  const successfulRows = rows.filter(isCommittablePreviewRow);
   const customerTotalRows = successfulRows.filter((row) => row.rowType === "customer_total");
   const itemDetailRows = successfulRows.filter((row) => row.rowType === "item_detail");
   const receiptRows = successfulRows.filter((row) => row.rowType === "receipt");
@@ -157,11 +159,16 @@ export function summarizePreview(input: {
     insertRows: rows.filter((row) => row.action === "insert").length,
     updateRows: rows.filter((row) => row.action === "update").length,
     skippedRows: rows.filter((row) => row.action === "skipped").length,
-    errorRows: rows.filter((row) => row.action === "error").length,
+    excludedRows: issueSummary.excludedRows,
+    warningRows: issueSummary.warningRows,
+    errorRows: issueSummary.errorRows,
+    excludedByReason: issueSummary.excludedByReason,
+    warningByReason: issueSummary.warningByReason,
+    errorByReason: issueSummary.errorByReason,
     salesTotal: salesSourceRows.reduce((sum, row) => sum + row.salesAmount, 0),
     receiptTotal: receiptSourceRows.reduce((sum, row) => sum + row.receiptAmount + row.receiptDiscount, 0),
     arBalance: arRows.at(-1)?.arBalance ?? 0,
-    canCommit: rows.every((row) => row.action !== "error"),
+    canCommit: issueSummary.errorRows === 0 && issueSummary.warningRows === 0,
     commitMode: "upsert_by_hash" as const,
   };
 }

@@ -15,6 +15,9 @@ function safeError(status: number, code: string, message: string, extra: Record<
       dryRun: true,
       error: { code, message },
       blocked_reasons: [code],
+      dryRunReady: false,
+      actualApplyReady: false,
+      actualApplyBlockedReason: "APPLY_NOT_APPROVED",
       ...extra,
     },
     { status },
@@ -22,7 +25,12 @@ function safeError(status: number, code: string, message: string, extra: Record<
 }
 
 function applyNotApprovedResponse() {
-  return safeError(403, "APPLY_NOT_APPROVED", applyNotApprovedMessage, { applyReady: false });
+  return safeError(403, "APPLY_NOT_APPROVED", applyNotApprovedMessage, {
+    applyReady: false,
+    dryRunReady: false,
+    actualApplyReady: false,
+    actualApplyBlockedReason: "APPLY_NOT_APPROVED",
+  });
 }
 
 function isSupportedUploadFile(fileName: string) {
@@ -133,17 +141,23 @@ export async function POST(request: Request) {
 
     const dataBlockedReasons = preview.blockedReasons.filter((reason) => reason !== "PREVIEW_ONLY");
     const hasErrorRows = preview.summary.errorRows > 0;
-    const applyReady = !hasErrorRows && dataBlockedReasons.length === 0;
+    const hasWarningRows = preview.summary.warningRows > 0;
+    const dryRunReady = !hasErrorRows && !hasWarningRows && dataBlockedReasons.length === 0;
     const applyBlockedReason = hasErrorRows
       ? "HAS_ERROR_ROWS"
-      : dataBlockedReasons[0] ?? (applyReady ? null : "PREVIEW_NOT_COMMITTABLE");
-    const statusLabel = applyReady ? "DRY_RUN_READY" : "DRY_RUN_BLOCKED";
+      : hasWarningRows
+        ? "HAS_WARNING_ROWS"
+        : dataBlockedReasons[0] ?? (dryRunReady ? null : "PREVIEW_NOT_COMMITTABLE");
+    const statusLabel = dryRunReady ? "DRY_RUN_READY" : "DRY_RUN_BLOCKED";
 
     return NextResponse.json({
       ok: true,
       dryRun: true,
-      applyReady,
+      dryRunReady,
+      applyReady: dryRunReady,
       applyBlockedReason,
+      actualApplyReady: false,
+      actualApplyBlockedReason: "APPLY_NOT_APPROVED",
       report: {
         import_batch_id: `dryrun_${previewChecksum.replace(/^sha256:/, "").slice(0, 16)}`,
         operator,
@@ -152,14 +166,19 @@ export async function POST(request: Request) {
         preview_checksum: previewChecksum,
         total_rows: operationalSummary.totalRows,
         normal_rows: operationalSummary.normalRows,
+        excluded_rows: preview.summary.excludedRows,
+        warning_rows: preview.summary.warningRows,
         error_rows: preview.summary.errorRows,
         excluded_or_error_rows: operationalSummary.excludedOrErrorRows,
+        excluded_by_reason: preview.summary.excludedByReason,
+        warning_by_reason: preview.summary.warningByReason,
+        error_by_reason: preview.summary.errorByReason,
         amount_total: operationalSummary.amountTotal,
         account_count: operationalSummary.customerCount,
         item_count: operationalSummary.productCount,
-        expected_affected_rows: applyReady ? preview.summary.insertRows + preview.summary.updateRows : 0,
+        expected_affected_rows: dryRunReady ? preview.summary.insertRows + preview.summary.updateRows : 0,
         created_at: new Date().toISOString(),
-        status: hasErrorRows ? "DRY_RUN_BLOCKED_HAS_ERRORS" : statusLabel,
+        status: hasErrorRows ? "DRY_RUN_BLOCKED_HAS_ERRORS" : hasWarningRows ? "DRY_RUN_BLOCKED_HAS_WARNINGS" : statusLabel,
       },
       side_effects: {
         dbWrite: false,

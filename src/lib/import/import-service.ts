@@ -113,7 +113,7 @@ export class ImportService {
       });
     }
 
-    if (!preview.summary.canCommit || preview.summary.errorRows > 0) {
+    if (!preview.summary.canCommit || preview.summary.errorRows > 0 || preview.summary.warningRows > 0) {
       return this.rejectedConfirm({
         previewId,
         reason: "PREVIEW_NOT_COMMITTABLE",
