@@ -126,9 +126,19 @@ def parse_rows(rows: list[dict[str, Any]], part_code: str, fallback_date: str) -
 def read_excel(path: Path) -> list[dict[str, Any]]:
     import pandas as pd
 
-    frame = pd.read_excel(path, dtype=object)
+    engine = excel_engine_for(path)
+    frame = pd.read_excel(path, dtype=object, engine=engine)
     frame = frame.where(pd.notnull(frame), None)
     return frame.to_dict(orient="records")
+
+
+def excel_engine_for(path: Path) -> str | None:
+    suffix = path.suffix.lower()
+    if suffix == ".xls":
+        return "xlrd"
+    if suffix in {".xlsx", ".xlsm"}:
+        return "openpyxl"
+    return None
 
 
 def main() -> None:
@@ -140,7 +150,7 @@ def main() -> None:
 
     rows = read_excel(Path(args.file))
     parsed = parse_rows(rows, args.part_code, args.period_end)
-    print(json.dumps([asdict(row) for row in parsed], ensure_ascii=False))
+    print(json.dumps([asdict(row) for row in parsed], ensure_ascii=True))
 
 
 if __name__ == "__main__":

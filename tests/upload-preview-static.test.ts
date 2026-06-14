@@ -7,6 +7,7 @@ const uploadCenterSource = readFileSync(join(process.cwd(), "src", "components",
 const previewRouteSource = readFileSync(join(process.cwd(), "src", "app", "api", "uploads", "preview", "route.ts"), "utf8");
 const confirmRouteSource = readFileSync(join(process.cwd(), "src", "app", "api", "uploads", "confirm", "route.ts"), "utf8");
 const serviceFactorySource = readFileSync(join(process.cwd(), "src", "lib", "import", "service-factory.ts"), "utf8");
+const pythonParserSource = readFileSync(join(process.cwd(), "src", "lib", "import", "python-parser.ts"), "utf8");
 
 describe("upload preview safety and part mismatch guards", () => {
   it("detects the part code from Korean XLS file names and warns on selected part mismatch", () => {
@@ -69,6 +70,17 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(serviceFactorySource).toContain("PreviewOnlyStorageAdapter");
     expect(serviceFactorySource).toContain("PreviewOnlyImportRepository");
     expect(serviceFactorySource).toContain("export const createPreviewImportService = createPreviewOnlyImportService");
+  });
+
+  it("uses an ASCII temp file name before handing uploaded workbooks to Python", () => {
+    expect(pythonParserSource).toContain("getSafeWorkerFileName");
+    expect(pythonParserSource).toContain("supportedWorkerExtensions");
+    expect(pythonParserSource).toContain("randomUUID");
+    expect(pythonParserSource).toContain("workerStdoutMaxBuffer");
+    expect(pythonParserSource).toContain("maxBuffer: workerStdoutMaxBuffer");
+    expect(pythonParserSource).toContain('".xls"');
+    expect(pythonParserSource).toContain('".xlsx"');
+    expect(pythonParserSource).not.toContain("input.file.name.replace");
   });
 
   it("uses a local admin profile fallback only outside production when no browser session exists", () => {
