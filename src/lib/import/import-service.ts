@@ -1,8 +1,14 @@
 import { parseLedgerRows, summarizePreview } from "@/lib/ledger/rules";
-import { PART_REQUIRED, resolveImportPartCode } from "@/lib/import/master-data";
+import { getSelectedFilePartMismatch, PART_REQUIRED, resolveImportPartCode } from "@/lib/import/master-data";
 import type { ImportPreviewRecord, ImportRepository } from "@/lib/import/types";
 import type { LedgerRawRow } from "@/lib/types";
 import type { UploadStorageAdapter } from "@/lib/storage/types";
+
+export type OperatorConfirmations = {
+  previewChecked?: boolean;
+  partMatchChecked?: boolean;
+  rollbackAcknowledged?: boolean;
+};
 
 export class ImportService {
   constructor(
@@ -74,27 +80,67 @@ export class ImportService {
     });
   }
 
-  async confirm(previewId: string) {
-    const preview = await this.options.repository.getPreview(previewId);
-    if (!preview) {
-      return {
-        status: "rejected" as const,
+  async confirm(previewId: string, options: { operator?: string | null; confirmations?: OperatorConfirmations } = {}) {
+    const operator = options.operator?.trim() || null;
+    const createdAt = new Date().toISOString();
+
+    if (!operator) {
+      return this.rejectedConfirm({
         previewId,
-        inserted: 0,
-        updated: 0,
-        skipped: 0,
-        errors: 1,
-        missingCandidates: 0,
-        normalized: { salesTransactions: 0, receiptTransactions: 0, arSnapshots: 0 },
-        blockedReasons: ["Preview result was not found."],
-      };
+        reason: "OPERATOR_REQUIRED",
+        operator,
+        createdAt,
+      });
     }
 
-    const blockedReasons = [...(this.options.blockedReasons ?? []), ...preview.blockedReasons];
+    const missingConfirmations = missingOperatorConfirmations(options.confirmations);
+    if (missingConfirmations.length > 0) {
+      return this.rejectedConfirm({
+        previewId,
+        reason: `OPERATOR_CONFIRMATION_REQUIRED:${missingConfirmations.join(",")}`,
+        operator,
+        createdAt,
+      });
+    }
+
+    const preview = await this.options.repository.getPreview(previewId);
+    if (!preview) {
+      return this.rejectedConfirm({
+        previewId,
+        reason: "PREVIEW_NOT_FOUND",
+        operator,
+        createdAt,
+      });
+    }
+
+    if (!preview.summary.canCommit || preview.summary.errorRows > 0) {
+      return this.rejectedConfirm({
+        previewId,
+        reason: "PREVIEW_NOT_COMMITTABLE",
+        operator,
+        createdAt,
+        importBatchId: preview.uploadRecordId,
+      });
+    }
+
+    const partMismatch = getSelectedFilePartMismatch({
+      selectedPartCode: preview.summary.partCode,
+      fileName: preview.summary.fileName,
+    });
+    const blockedReasons = [
+      ...(this.options.blockedReasons ?? []),
+      ...preview.blockedReasons,
+      ...(partMismatch ? [partMismatch.code] : []),
+    ];
     if (blockedReasons.length > 0) {
       return {
         status: "blocked" as const,
         previewId,
+        importBatchId: preview.uploadRecordId,
+        appliedCount: 0,
+        rejectedCount: 0,
+        operator,
+        createdAt,
         inserted: 0,
         updated: 0,
         skipped: 0,
@@ -105,6 +151,41 @@ export class ImportService {
       };
     }
 
-    return this.options.repository.confirmPreview(preview);
+    const result = await this.options.repository.confirmPreview(preview);
+    return {
+      ...result,
+      importBatchId: preview.uploadRecordId,
+      appliedCount: result.inserted + result.updated,
+      rejectedCount: result.errors + result.missingCandidates,
+      operator,
+      createdAt,
+    };
   }
+
+  private rejectedConfirm(input: { previewId: string; reason: string; operator: string | null; createdAt: string; importBatchId?: string }) {
+    return {
+      status: "rejected" as const,
+      previewId: input.previewId,
+      importBatchId: input.importBatchId ?? input.previewId,
+      appliedCount: 0,
+      rejectedCount: 1,
+      operator: input.operator,
+      createdAt: input.createdAt,
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      errors: 1,
+      missingCandidates: 0,
+      normalized: { salesTransactions: 0, receiptTransactions: 0, arSnapshots: 0 },
+      blockedReasons: [input.reason],
+    };
+  }
+}
+
+function missingOperatorConfirmations(confirmations: OperatorConfirmations | undefined) {
+  const missing: string[] = [];
+  if (!confirmations?.previewChecked) missing.push("previewChecked");
+  if (!confirmations?.partMatchChecked) missing.push("partMatchChecked");
+  if (!confirmations?.rollbackAcknowledged) missing.push("rollbackAcknowledged");
+  return missing;
 }

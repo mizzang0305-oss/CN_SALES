@@ -35,8 +35,7 @@ describe("upload preview route response safety", () => {
     const response = await POST(new Request("http://localhost/api/uploads/preview", { method: "POST", body: formData }));
     const text = await response.text();
 
-    expect(response.status).toBeGreaterThanOrEqual(400);
-    expect(response.status).toBeLessThan(500);
+    expect(response.status).toBe(415);
     expect(text).toContain("INVALID_UPLOAD_FILE");
     for (const fragment of forbiddenDiagnosticFragments()) {
       expect(text).not.toContain(fragment);
@@ -54,7 +53,21 @@ describe("upload preview route response safety", () => {
       }),
     }));
     const text = await response.text();
-    const body = JSON.parse(text) as { rows: Array<Record<string, unknown>>; apply?: { enabled?: boolean } };
+    const body = JSON.parse(text) as {
+      rows: Array<Record<string, unknown>>;
+      operationalSummary?: {
+        totalRows: number;
+        normalRows: number;
+        excludedOrErrorRows: number;
+        amountTotal: number;
+        customerCount: number;
+        productCount: number;
+        warnings: string[];
+      };
+      apply?: { enabled?: boolean; reason?: string };
+      mode?: string;
+      blocked_reasons?: string[];
+    };
 
     expect(response.status).toBe(200);
     for (const fragment of forbiddenSourceRowFragments()) {
@@ -65,6 +78,17 @@ describe("upload preview route response safety", () => {
     expect(body.rows[0]).not.toHaveProperty("identityHash");
     expect(body.rows[0]).not.toHaveProperty("contentHash");
     expect(body.apply?.enabled).toBe(false);
+    expect(body.apply?.reason).toBe("PREVIEW_ONLY");
+    expect(body.mode).toBe("fixture");
+    expect(body.blocked_reasons).toContain("PREVIEW_ONLY");
+    expect(body.operationalSummary).toMatchObject({
+      totalRows: 2,
+      normalRows: 2,
+      excludedOrErrorRows: 0,
+      amountTotal: 20000,
+      customerCount: 1,
+      productCount: 1,
+    });
   });
 
   it("does not create repo-local upload persistence during preview", async () => {

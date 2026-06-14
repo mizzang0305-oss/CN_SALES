@@ -106,5 +106,6 @@ export function getDashboardSummary() {
     receiptRate: totals.salesAmount ? (totals.receiptAmount / totals.salesAmount) * 100 : 0,
     targetRate: totals.targetAmount ? (totals.salesAmount / totals.targetAmount) * 100 : 0,
     parts: dashboardParts,
+    recentUploads: [],
   };
 }
