@@ -33,6 +33,9 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(uploadCenterSource).toContain("rollbackAcknowledged");
     expect(uploadCenterSource).toContain("dryRunDisabled");
     expect(uploadCenterSource).toContain("runDryRunConfirm");
+    expect(uploadCenterSource).toContain("syncDiff");
+    expect(uploadCenterSource).toContain("insertCandidates");
+    expect(uploadCenterSource).toContain("deleteCandidates");
     expect(uploadCenterSource).toContain("실제 DB 반영 준비중");
   });
 

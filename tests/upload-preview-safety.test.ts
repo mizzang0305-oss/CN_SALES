@@ -242,6 +242,20 @@ describe("upload preview route response safety", () => {
         error_by_reason: Record<string, number>;
       };
       side_effects: { dbWrite: boolean; storageWrite: boolean; normalizedTableWrite: boolean; actualApply: boolean };
+      syncDiff?: {
+        scope: { partCode: string; dateFrom: string; dateTo: string };
+        incoming: { normalRows: number; excludedRows: number; warningRows: number; errorRows: number };
+        existing: { scopedRows: number };
+        diff: {
+          insertCandidates: number;
+          updateCandidates: number;
+          deleteCandidates: number;
+          noChangeRows: number;
+          duplicateIncomingKeys: number;
+          duplicateExistingKeys: number;
+        };
+        safety: { dbWriteExecuted: boolean; deleteExecuted: boolean; productionPostExecuted: boolean };
+      };
     };
 
     expect(response.status).toBe(200);
@@ -265,6 +279,24 @@ describe("upload preview route response safety", () => {
       storageWrite: false,
       normalizedTableWrite: false,
       actualApply: false,
+    });
+    expect(body.syncDiff).toMatchObject({
+      scope: { partCode: "5", dateFrom: "2026-06-05", dateTo: "2026-06-05" },
+      incoming: { normalRows: 2, excludedRows: 0, warningRows: 0, errorRows: 0 },
+      existing: { scopedRows: 0 },
+      diff: {
+        insertCandidates: 2,
+        updateCandidates: 0,
+        deleteCandidates: 0,
+        noChangeRows: 0,
+        duplicateIncomingKeys: 0,
+        duplicateExistingKeys: 0,
+      },
+      safety: {
+        dbWriteExecuted: false,
+        deleteExecuted: false,
+        productionPostExecuted: false,
+      },
     });
     for (const fragment of forbiddenSourceRowFragments()) {
       expect(text).not.toContain(fragment);

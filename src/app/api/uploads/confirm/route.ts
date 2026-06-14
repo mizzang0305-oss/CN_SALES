@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { createPreviewOnlyImportService } from "@/lib/import/service-factory";
 import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-data";
 import { createPreviewChecksum, hashUploadFile, toOperationalPreviewSummary } from "@/lib/import/preview-checksum";
+import { isCommittablePreviewRow } from "@/lib/import/row-classification";
+import { readExistingLedgerRowsForSync } from "@/lib/import/sync-existing-reader";
+import { deriveLedgerSyncScope, planLedgerSyncDiff } from "@/lib/import/sync-diff";
+import { createLedgerIdentitySyncRows } from "@/lib/import/sync-key";
 
 export const runtime = "nodejs";
 
@@ -149,6 +153,29 @@ export async function POST(request: Request) {
         ? "HAS_WARNING_ROWS"
         : dataBlockedReasons[0] ?? (dryRunReady ? null : "PREVIEW_NOT_COMMITTABLE");
     const statusLabel = dryRunReady ? "DRY_RUN_READY" : "DRY_RUN_BLOCKED";
+    const committableRows = preview.rows.filter(isCommittablePreviewRow);
+    const syncScope = deriveLedgerSyncScope({
+      partCode: selectedPartCode,
+      dates: committableRows.map((row) => row.ledgerDate),
+      fallbackDateFrom: getString(formData, "periodStart") || "2026-06-01",
+      fallbackDateTo: getString(formData, "periodEnd") || "2026-06-30",
+    });
+    const existingRead = await readExistingLedgerRowsForSync(syncScope);
+    const syncDiff = planLedgerSyncDiff({
+      scope: syncScope,
+      incomingRows: createLedgerIdentitySyncRows(committableRows),
+      existingRows: existingRead.rows,
+      incomingSummary: {
+        normalRows: operationalSummary.normalRows,
+        excludedRows: preview.summary.excludedRows,
+        warningRows: preview.summary.warningRows,
+        errorRows: preview.summary.errorRows,
+      },
+      readOnlyEvidence: {
+        readExecuted: existingRead.readExecuted,
+        readBlockedReason: existingRead.readBlockedReason,
+      },
+    });
 
     return NextResponse.json({
       ok: true,
@@ -186,6 +213,7 @@ export async function POST(request: Request) {
         normalizedTableWrite: false,
         actualApply: false,
       },
+      syncDiff,
     });
   } catch {
     return safeError(500, "CONFIRM_DRY_RUN_FAILED", "Confirm dry-run failed safely.", { applyReady: false });
