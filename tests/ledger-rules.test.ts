@@ -3,14 +3,28 @@ import { describe, it } from "vitest";
 import { parseLedgerRows, summarizePreview } from "@/lib/ledger/rules";
 
 const rows = [
-  { 일자: "2026-06-07", 거래처명: "한빛마트", 구분: "거래처계", 매출액: 1000, 외상잔액: 3000 },
-  { 일자: "2026-06-07", 거래처명: "한빛마트", 상품명: "왕만두", 수량: 1, 단가: 1000, 매출액: 1000 },
-  { 일자: "2026-06-07", 거래처명: "한빛마트", 구분: "입금", 입금액: 700, 입금할인: 50 },
+  { 거래일자: "2026-06-07", 거래처명: "Synthetic Mart", "구분(내용)": "거래처계", 합계액: 1000, 잔액: 3000 },
+  { 거래일자: "2026-06-07", 거래처명: "Synthetic Mart", "상  품  명": "Synthetic Product", 수량: 1, 단가: 1000, 합계액: 1000 },
+  { 거래일자: "2026-06-07", 거래처명: "Synthetic Mart", "구분(내용)": "입금", 입금액: 700, 할인: 50 },
 ];
 
 describe("ledger import rules", () => {
   it("does not double count item_detail and customer_total for reporting sales", () => {
     const parsed = parseLedgerRows({ rows, partCode: "A", periodStart: "2026-06-01", periodEnd: "2026-06-30" });
+    const summary = summarizePreview({
+      fileName: "sample.xlsx",
+      partCode: "A",
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+      rows: parsed,
+    });
+
+    assert.equal(summary.salesTotal, 1000);
+  });
+
+  it("uses item detail sales when a ledger has no customer total rows", () => {
+    const itemOnlyRows = rows.filter((row) => row["구분(내용)"] !== "거래처계");
+    const parsed = parseLedgerRows({ rows: itemOnlyRows, partCode: "A", periodStart: "2026-06-01", periodEnd: "2026-06-30" });
     const summary = summarizePreview({
       fileName: "sample.xlsx",
       partCode: "A",
@@ -46,7 +60,7 @@ describe("ledger import rules", () => {
   it("marks same identity and changed content as update", () => {
     const first = parseLedgerRows({ rows, partCode: "A", periodStart: "2026-06-01", periodEnd: "2026-06-30" });
     const existingHashes = Object.fromEntries(first.map((row) => [row.identityHash, row.contentHash]));
-    const changed = [{ ...rows[0], 매출액: 1200 }, rows[1], rows[2]];
+    const changed = [{ ...rows[0], 합계액: 1200 }, rows[1], rows[2]];
     const second = parseLedgerRows({ rows: changed, partCode: "A", periodStart: "2026-06-01", periodEnd: "2026-06-30", existingHashes });
 
     assert.equal(second[0].action, "update");

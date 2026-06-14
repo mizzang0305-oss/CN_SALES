@@ -2,25 +2,31 @@ import { stableHash } from "@/lib/ledger/hash";
 import type { ImportAction, LedgerRawRow, LedgerRowType, ParsedLedgerRow } from "@/lib/types";
 
 const emptyRow: LedgerRawRow = {};
+const labelKeys = ["구분", "구분(내용)", "row_type", "품명", "상품명", "상  품  명", "상 품 명"];
+const dateKeys = ["일자", "날짜", "거래일자", "date"];
+const customerCodeKeys = ["거래처코드", "관리코드(C)", "customer_code", "코드", "ccode"];
+const customerNameKeys = ["거래처명", "customer_name", "거래처"];
+const productNameKeys = ["상품명", "품명", "상  품  명", "상 품 명", "product_name"];
+const quantityKeys = ["수량", "quantity"];
+const unitPriceKeys = ["단가", "unit_price"];
+const salesAmountKeys = ["매출액", "금액", "합계액", "공급가액", "sales_amount", "amount"];
+const receiptAmountKeys = ["입금액", "회입액", "receipt_amount"];
+const receiptDiscountKeys = ["입금할인", "회입할인", "할인", "receipt_discount"];
+const receiptTotalKeys = ["입금+할인"];
+const arBalanceKeys = ["외상잔액", "잔액", "ar_balance"];
 
 export function classifyLedgerRow(rawRowJson: LedgerRawRow = emptyRow): LedgerRowType {
-  const label = String(
-    rawRowJson["구분"] ??
-      rawRowJson["row_type"] ??
-      rawRowJson["품명"] ??
-      rawRowJson["상품명"] ??
-      "",
-  );
+  const label = getText(rawRowJson, labelKeys);
+  const productName = getText(rawRowJson, productNameKeys);
+  const quantity = getNumber(rawRowJson, quantityKeys);
+  const unitPrice = getNumber(rawRowJson, unitPriceKeys);
+  const salesAmount = getNumber(rawRowJson, salesAmountKeys);
+  const receiptAmount = getNumber(rawRowJson, [...receiptAmountKeys, ...receiptTotalKeys]);
 
   if (/총계|합계계|grand/i.test(label)) return "grand_total";
   if (/일계|daily/i.test(label)) return "daily_total";
-  if (/거래처.?계|거래처.?합계|customer.?total/i.test(label)) return "customer_total";
-  if (/입금|회입|receipt/i.test(label)) return "receipt";
-
-  const productName = getText(rawRowJson, ["상품명", "품명", "product_name"]);
-  const quantity = getNumber(rawRowJson, ["수량", "quantity"]);
-  const unitPrice = getNumber(rawRowJson, ["단가", "unit_price"]);
-  const salesAmount = getNumber(rawRowJson, ["매출액", "금액", "sales_amount", "amount"]);
+  if (/거래처계|거래처합계|customer.?total/i.test(label)) return "customer_total";
+  if (/입금|회입|receipt/i.test(label) || (!productName && receiptAmount !== 0)) return "receipt";
 
   if (productName && (quantity !== 0 || unitPrice !== 0 || salesAmount !== 0)) {
     return "item_detail";
@@ -64,16 +70,16 @@ export function normalizeLedgerRow(input: {
 }): ParsedLedgerRow {
   const rawRowJson = input.rawRowJson;
   const rowType = classifyLedgerRow(rawRowJson);
-  const ledgerDate = getText(rawRowJson, ["일자", "날짜", "date"]) || input.fallbackDate;
-  const customerCode = getText(rawRowJson, ["거래처코드", "customer_code", "코드"]) || null;
-  const customerName = getText(rawRowJson, ["거래처명", "customer_name", "거래처"]) || null;
-  const productName = getText(rawRowJson, ["상품명", "품명", "product_name"]) || null;
-  const quantity = getNumber(rawRowJson, ["수량", "quantity"]);
-  const unitPrice = getNumber(rawRowJson, ["단가", "unit_price"]);
-  const salesAmount = getNumber(rawRowJson, ["매출액", "금액", "sales_amount", "amount"]);
-  const receiptAmount = getNumber(rawRowJson, ["입금액", "회입액", "receipt_amount"]);
-  const receiptDiscount = getNumber(rawRowJson, ["입금할인", "회입할인", "receipt_discount"]);
-  const arValue = getNullableNumber(rawRowJson, ["외상잔액", "잔액", "ar_balance"]);
+  const ledgerDate = getText(rawRowJson, dateKeys) || input.fallbackDate;
+  const customerCode = getText(rawRowJson, customerCodeKeys) || null;
+  const customerName = getText(rawRowJson, customerNameKeys) || null;
+  const productName = getText(rawRowJson, productNameKeys) || null;
+  const quantity = getNumber(rawRowJson, quantityKeys);
+  const unitPrice = getNumber(rawRowJson, unitPriceKeys);
+  const salesAmount = getNumber(rawRowJson, salesAmountKeys);
+  const receiptAmount = getNumber(rawRowJson, receiptAmountKeys) || getNumber(rawRowJson, receiptTotalKeys);
+  const receiptDiscount = getNumber(rawRowJson, receiptDiscountKeys);
+  const arValue = getNullableNumber(rawRowJson, arBalanceKeys);
   const errors: string[] = [];
 
   if (rowType === "unknown") errors.push("분류할 수 없는 행입니다.");
@@ -131,9 +137,15 @@ export function summarizePreview(input: {
   rows: ReturnType<typeof parseLedgerRows>;
 }) {
   const rows = input.rows;
-  const customerTotalRows = rows.filter((row) => row.rowType === "customer_total" && row.action !== "error");
-  const receiptRows = rows.filter((row) => row.rowType === "receipt" && row.action !== "error");
-  const arRows = rows.filter((row) => row.arBalance !== null && row.action !== "error");
+  const successfulRows = rows.filter((row) => row.action !== "error");
+  const customerTotalRows = successfulRows.filter((row) => row.rowType === "customer_total");
+  const itemDetailRows = successfulRows.filter((row) => row.rowType === "item_detail");
+  const receiptRows = successfulRows.filter((row) => row.rowType === "receipt");
+  const receiptSourceRows = receiptRows.length
+    ? receiptRows
+    : successfulRows.filter((row) => row.receiptAmount !== 0 || row.receiptDiscount !== 0);
+  const salesSourceRows = customerTotalRows.length ? customerTotalRows : itemDetailRows;
+  const arRows = successfulRows.filter((row) => row.arBalance !== null);
 
   return {
     fileName: input.fileName,
@@ -146,8 +158,8 @@ export function summarizePreview(input: {
     updateRows: rows.filter((row) => row.action === "update").length,
     skippedRows: rows.filter((row) => row.action === "skipped").length,
     errorRows: rows.filter((row) => row.action === "error").length,
-    salesTotal: customerTotalRows.reduce((sum, row) => sum + row.salesAmount, 0),
-    receiptTotal: receiptRows.reduce((sum, row) => sum + row.receiptAmount + row.receiptDiscount, 0),
+    salesTotal: salesSourceRows.reduce((sum, row) => sum + row.salesAmount, 0),
+    receiptTotal: receiptSourceRows.reduce((sum, row) => sum + row.receiptAmount + row.receiptDiscount, 0),
     arBalance: arRows.at(-1)?.arBalance ?? 0,
     canCommit: rows.every((row) => row.action !== "error"),
     commitMode: "upsert_by_hash" as const,
@@ -172,7 +184,7 @@ function getNullableNumber(row: LedgerRawRow, keys: string[]) {
   for (const key of keys) {
     const value = row[key];
     if (value === null || value === undefined || value === "") continue;
-    const parsed = Number(String(value).replace(/[,\s원]/g, ""));
+    const parsed = Number(String(value).replace(/,/g, "").replace(/\s/g, "").replace(/원/g, ""));
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
