@@ -7,6 +7,7 @@ const uploadCenterSource = readFileSync(join(process.cwd(), "src", "components",
 const previewRouteSource = readFileSync(join(process.cwd(), "src", "app", "api", "uploads", "preview", "route.ts"), "utf8");
 const confirmRouteSource = readFileSync(join(process.cwd(), "src", "app", "api", "uploads", "confirm", "route.ts"), "utf8");
 const serviceFactorySource = readFileSync(join(process.cwd(), "src", "lib", "import", "service-factory.ts"), "utf8");
+const supabaseRepositorySource = readFileSync(join(process.cwd(), "src", "lib", "import", "supabase-repository.ts"), "utf8");
 const pythonParserSource = readFileSync(join(process.cwd(), "src", "lib", "import", "python-parser.ts"), "utf8");
 
 describe("upload preview safety and part mismatch guards", () => {
@@ -79,13 +80,38 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).toContain("warning_by_reason");
     expect(confirmRouteSource).toContain("error_by_reason");
     expect(confirmRouteSource).toContain("createPreviewOnlyImportService");
+    expect(confirmRouteSource).toContain("approvalStage");
+    expect(confirmRouteSource).toContain("loadLimitedApplyApproval");
+    expect(confirmRouteSource).toContain("validateLimitedApplyPreconditions");
+    expect(confirmRouteSource).toContain("selectLimitedApplyRows");
+    expect(confirmRouteSource).toContain("limitedInsertLedgerRows");
+    expect(confirmRouteSource).toContain("LIMITED_APPLY_PRECHECK_BLOCKED");
+    expect(confirmRouteSource).toContain("LIMITED_APPLY_WRITE_CLIENT_BLOCKED");
     expect(confirmRouteSource).toContain("createPreviewChecksum");
     expect(confirmRouteSource).toContain("createLedgerSyncRows");
     expect(confirmRouteSource).toContain("legacySchemaIdentityDiagnostics");
     expect(confirmRouteSource).toContain("natural_occurrence_v2");
-    expect(confirmRouteSource).not.toContain("createImportService");
     expect(confirmRouteSource).not.toContain("confirmPreview");
     expect(confirmRouteSource).not.toContain("error.message");
+  });
+
+  it("keeps G-6B limited apply on insert-only ledger row persistence", () => {
+    const methodStart = supabaseRepositorySource.indexOf("async limitedInsertLedgerRows");
+    const methodEnd = supabaseRepositorySource.indexOf("async getDashboardTotals", methodStart);
+    const methodSource = supabaseRepositorySource.slice(methodStart, methodEnd);
+
+    expect(methodStart).toBeGreaterThanOrEqual(0);
+    expect(methodEnd).toBeGreaterThan(methodStart);
+    expect(methodSource).toContain('.from("ledger_uploads")');
+    expect(methodSource).toContain('.from("ledger_rows")');
+    expect(methodSource).toContain(".insert(");
+    expect(methodSource).toContain("normalizedTableWrite: false");
+    expect(methodSource).not.toContain(".update(");
+    expect(methodSource).not.toContain(".delete(");
+    expect(methodSource).not.toContain(".upsert(");
+    expect(methodSource).not.toContain("insertNormalized");
+    expect(methodSource).not.toContain("upsertCustomer");
+    expect(methodSource).not.toContain("upsertProduct");
   });
 
   it("keeps preview-only service separate from Supabase preview persistence", () => {

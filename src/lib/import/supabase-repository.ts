@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { LimitedApplyRowSelection } from "@/lib/import/limited-apply";
 import { createNormalizedRows } from "@/lib/import/normalization";
 import { isCommittablePreviewRow } from "@/lib/import/row-classification";
 import { classifyUsageStatus, defaultPartName, normalizeMasterName } from "@/lib/import/master-data";
@@ -10,6 +11,26 @@ interface SupabaseContext {
   profileId: string;
   role: string;
   partIdByCode: Map<string, string>;
+}
+
+export interface LimitedInsertLedgerRowsResult {
+  importBatchId: string;
+  createdAt: string;
+  committedAt: string;
+  insertedRows: number;
+  updatedRows: 0;
+  deletedRows: 0;
+  normalizedTableWrite: false;
+  readBackRows: Array<{
+    id: string;
+    upload_id: string;
+    part_id: string;
+    row_index: number;
+    ledger_date: string;
+    row_type: string;
+    identity_hash: string;
+    content_hash: string;
+  }>;
 }
 
 export class SupabaseImportRepository implements ImportRepository {
@@ -219,6 +240,107 @@ export class SupabaseImportRepository implements ImportRepository {
         arSnapshots: normalized.arSnapshots.length,
       },
       blockedReasons: [],
+    };
+  }
+
+  async limitedInsertLedgerRows(input: {
+    fileName: string;
+    partCode: string;
+    periodStart: string;
+    periodEnd: string;
+    sourceFileHash: string;
+    previewChecksum: string;
+    operator: string;
+    selectedRows: LimitedApplyRowSelection[];
+    summary: {
+      stage: "G-6B";
+      totalRows: number;
+      normalRows: number;
+      excludedRows: number;
+      warningRows: number;
+      errorRows: number;
+      requestedRows: number;
+      maxRows: number;
+    };
+  }): Promise<LimitedInsertLedgerRowsResult> {
+    const context = await this.contextPromise;
+    const partId = context.partIdByCode.get(input.partCode);
+    if (!partId) throw new Error("Selected sales part is missing.");
+
+    const committedAt = new Date().toISOString();
+    const { data: upload, error: uploadError } = await this.db()
+      .from("ledger_uploads")
+      .insert({
+        company_id: context.companyId,
+        part_id: partId,
+        file_name: input.fileName,
+        storage_path: null,
+        period_start: input.periodStart,
+        period_end: input.periodEnd,
+        status: "committed",
+        committed_at: committedAt,
+        summary_json: {
+          stage: input.summary.stage,
+          applyMode: "limited-apply",
+          sourceFileHash: input.sourceFileHash,
+          previewChecksum: input.previewChecksum,
+          operator: input.operator,
+          requestedRows: input.summary.requestedRows,
+          maxRows: input.summary.maxRows,
+          totalRows: input.summary.totalRows,
+          normalRows: input.summary.normalRows,
+          excludedRows: input.summary.excludedRows,
+          warningRows: input.summary.warningRows,
+          errorRows: input.summary.errorRows,
+          normalizedTableWrite: false,
+        },
+        created_by: context.profileId,
+      })
+      .select("id, created_at, committed_at")
+      .single();
+    if (uploadError) throw new Error(`Create limited apply upload failed: ${uploadError.message}`);
+
+    const rowsToInsert = input.selectedRows.map((selection) => {
+      const rowWithSyncHashes = {
+        ...selection.row,
+        identityHash: selection.identityHash,
+        contentHash: selection.contentHash,
+      };
+      return this.toLedgerRowInsert(rowWithSyncHashes, context.companyId, upload.id, partId, null, null);
+    });
+
+    const { data: inserted, error: insertError } = await this.db()
+      .from("ledger_rows")
+      .insert(rowsToInsert)
+      .select("id, upload_id, part_id, row_index, ledger_date, row_type, identity_hash, content_hash");
+    if (insertError) throw new Error(`Insert limited ledger rows failed: ${insertError.message}`);
+
+    const insertedIds = (inserted ?? []).map((row) => row.id as string);
+    const { data: readBackRows, error: readBackError } = await this.db()
+      .from("ledger_rows")
+      .select("id, upload_id, part_id, row_index, ledger_date, row_type, identity_hash, content_hash")
+      .in("id", insertedIds)
+      .order("row_index", { ascending: true });
+    if (readBackError) throw new Error(`Read back limited ledger rows failed: ${readBackError.message}`);
+
+    return {
+      importBatchId: upload.id as string,
+      createdAt: String(upload.created_at ?? committedAt),
+      committedAt: String(upload.committed_at ?? committedAt),
+      insertedRows: readBackRows?.length ?? 0,
+      updatedRows: 0,
+      deletedRows: 0,
+      normalizedTableWrite: false,
+      readBackRows: (readBackRows ?? []).map((row) => ({
+        id: String(row.id),
+        upload_id: String(row.upload_id),
+        part_id: String(row.part_id),
+        row_index: Number(row.row_index),
+        ledger_date: String(row.ledger_date),
+        row_type: String(row.row_type),
+        identity_hash: String(row.identity_hash),
+        content_hash: String(row.content_hash),
+      })),
     };
   }
 
