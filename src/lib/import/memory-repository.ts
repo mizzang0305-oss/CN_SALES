@@ -1,4 +1,5 @@
 import { createNormalizedRows } from "@/lib/import/normalization";
+import { isCommittablePreviewRow } from "@/lib/import/row-classification";
 import { classifyUsageStatus, defaultPartName, normalizeMasterName } from "@/lib/import/master-data";
 import type { ConfirmResult, DashboardTotals, ImportPreviewRecord, ImportRepository } from "@/lib/import/types";
 import type { ParsedLedgerRow } from "@/lib/types";
@@ -96,7 +97,7 @@ export class MemoryImportRepository implements ImportRepository {
       status: "preview",
       createdAt,
       appliedCount: 0,
-      rejectedCount: input.summary.errorRows,
+      rejectedCount: input.summary.errorRows + input.summary.warningRows,
       operator: null,
     });
     this.recentUploads = this.recentUploads.slice(0, 10);
@@ -116,8 +117,8 @@ export class MemoryImportRepository implements ImportRepository {
   }
 
   async confirmPreview(preview: ImportPreviewRecord): Promise<ConfirmResult> {
-    if (preview.summary.errorRows > 0) {
-      return this.rejected(preview.previewId, preview.summary.errorRows);
+    if (preview.summary.errorRows > 0 || preview.summary.warningRows > 0) {
+      return this.rejected(preview.previewId, preview.summary.errorRows + preview.summary.warningRows);
     }
 
     let inserted = 0;
@@ -125,7 +126,7 @@ export class MemoryImportRepository implements ImportRepository {
     let skipped = 0;
     const changedRows: StoredLedgerRow[] = [];
 
-    for (const row of preview.rows) {
+    for (const row of preview.rows.filter(isCommittablePreviewRow)) {
       const existing = this.ledgerRows.find((item) => item.identityHash === row.identityHash);
       if (!existing) {
         const created = { ...row, id: crypto.randomUUID(), uploadRecordId: preview.uploadRecordId };

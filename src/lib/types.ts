@@ -17,6 +17,19 @@ export type ImportAction = "insert" | "update" | "skipped" | "error";
 
 export type LedgerRawRow = Record<string, string | number | null>;
 
+export type RowIssueSeverity = "excluded" | "warning" | "error";
+
+export type RowIssueReason =
+  | "BLANK_ROW"
+  | "REPEATED_HEADER"
+  | "SUBTOTAL_ROW"
+  | "NON_TRANSACTION_ROW"
+  | "MISSING_CUSTOMER"
+  | "MISSING_PRODUCT"
+  | "INVALID_REQUIRED_FIELD";
+
+export type RowIssueReasonCounts = Partial<Record<RowIssueReason, number>>;
+
 export interface ParsedLedgerRow {
   rowIndex: number;
   rowType: LedgerRowType;
@@ -47,7 +60,12 @@ export interface UploadPreviewSummary {
   insertRows: number;
   updateRows: number;
   skippedRows: number;
+  excludedRows: number;
+  warningRows: number;
   errorRows: number;
+  excludedByReason: RowIssueReasonCounts;
+  warningByReason: RowIssueReasonCounts;
+  errorByReason: RowIssueReasonCounts;
   salesTotal: number;
   receiptTotal: number;
   arBalance: number;

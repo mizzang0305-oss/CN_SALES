@@ -60,7 +60,13 @@ describe("upload preview route response safety", () => {
       operationalSummary?: {
         totalRows: number;
         normalRows: number;
+        excludedRows: number;
+        warningRows: number;
+        errorRows: number;
         excludedOrErrorRows: number;
+        excludedByReason: Record<string, number>;
+        warningByReason: Record<string, number>;
+        errorByReason: Record<string, number>;
         amountTotal: number;
         customerCount: number;
         productCount: number;
@@ -97,7 +103,13 @@ describe("upload preview route response safety", () => {
     expect(body.operationalSummary).toMatchObject({
       totalRows: 2,
       normalRows: 2,
+      excludedRows: 0,
+      warningRows: 0,
+      errorRows: 0,
       excludedOrErrorRows: 0,
+      excludedByReason: {},
+      warningByReason: {},
+      errorByReason: {},
       amountTotal: 20000,
       customerCount: 1,
       productCount: 1,
@@ -215,22 +227,77 @@ describe("upload preview route response safety", () => {
     const body = JSON.parse(text) as {
       ok: boolean;
       dryRun: boolean;
+      dryRunReady: boolean;
       applyReady: boolean;
-      report: { expected_affected_rows: number; status: string };
+      actualApplyReady: boolean;
+      actualApplyBlockedReason: string | null;
+      report: {
+        expected_affected_rows: number;
+        status: string;
+        excluded_rows: number;
+        warning_rows: number;
+        error_rows: number;
+        excluded_by_reason: Record<string, number>;
+        warning_by_reason: Record<string, number>;
+        error_by_reason: Record<string, number>;
+      };
       side_effects: { dbWrite: boolean; storageWrite: boolean; normalizedTableWrite: boolean; actualApply: boolean };
     };
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
     expect(body.dryRun).toBe(true);
+    expect(body.dryRunReady).toBe(true);
     expect(body.applyReady).toBe(true);
+    expect(body.actualApplyReady).toBe(false);
+    expect(body.actualApplyBlockedReason).toBe("APPLY_NOT_APPROVED");
     expect(body.report.expected_affected_rows).toBeGreaterThan(0);
+    expect(body.report).toMatchObject({
+      excluded_rows: 0,
+      warning_rows: 0,
+      error_rows: 0,
+      excluded_by_reason: {},
+      warning_by_reason: {},
+      error_by_reason: {},
+    });
     expect(body.side_effects).toEqual({
       dbWrite: false,
       storageWrite: false,
       normalizedTableWrite: false,
       actualApply: false,
     });
+    for (const fragment of forbiddenSourceRowFragments()) {
+      expect(text).not.toContain(fragment);
+    }
+  });
+
+  it("keeps excluded-only helper rows separate from actual error rows in confirm dry-run", async () => {
+    const formData = await createConfirmFormData([...jsonRows, { note: "reference memo only" }]);
+
+    const response = await confirmPost(new Request("http://localhost/api/uploads/confirm", { method: "POST", body: formData }));
+    const text = await response.text();
+    const body = JSON.parse(text) as {
+      dryRunReady: boolean;
+      actualApplyReady: boolean;
+      actualApplyBlockedReason: string;
+      report: {
+        excluded_rows: number;
+        warning_rows: number;
+        error_rows: number;
+        excluded_by_reason: Record<string, number>;
+        expected_affected_rows: number;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.dryRunReady).toBe(true);
+    expect(body.actualApplyReady).toBe(false);
+    expect(body.actualApplyBlockedReason).toBe("APPLY_NOT_APPROVED");
+    expect(body.report.excluded_rows).toBe(1);
+    expect(body.report.warning_rows).toBe(0);
+    expect(body.report.error_rows).toBe(0);
+    expect(body.report.excluded_by_reason).toEqual({ NON_TRANSACTION_ROW: 1 });
+    expect(body.report.expected_affected_rows).toBeGreaterThan(0);
     for (const fragment of forbiddenSourceRowFragments()) {
       expect(text).not.toContain(fragment);
     }
@@ -261,8 +328,8 @@ function forbiddenSourceRowFragments() {
   ];
 }
 
-async function createConfirmFormData() {
-  const file = new File([JSON.stringify(jsonRows)], "part-5-ledger.json", { type: "application/json" });
+async function createConfirmFormData(rows = jsonRows) {
+  const file = new File([JSON.stringify(rows)], "part-5-ledger.json", { type: "application/json" });
   const previewFormData = new FormData();
   previewFormData.set("file", file);
   previewFormData.set("selectedPart", "5");

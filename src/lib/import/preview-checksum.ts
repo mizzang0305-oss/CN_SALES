@@ -1,11 +1,18 @@
 import { createHash } from "node:crypto";
 import { extractPartCodeFromText, getSelectedFilePartMismatch } from "@/lib/import/master-data";
 import type { ImportPreviewRecord } from "@/lib/import/types";
+import type { RowIssueReasonCounts } from "@/lib/types";
 
 export type OperationalPreviewSummary = {
   totalRows: number;
   normalRows: number;
+  excludedRows: number;
+  warningRows: number;
+  errorRows: number;
   excludedOrErrorRows: number;
+  excludedByReason: RowIssueReasonCounts;
+  warningByReason: RowIssueReasonCounts;
+  errorByReason: RowIssueReasonCounts;
   partMismatch: boolean;
   selectedPartCode: string;
   filePartCode: string | null;
@@ -49,13 +56,21 @@ export function toOperationalPreviewSummary(preview: ImportPreviewRecord, envBlo
     ...envBlockedReasons,
     ...(partMismatch ? [partMismatch.code] : []),
     ...(preview.summary.errorRows > 0 ? ["PREVIEW_HAS_ERROR_ROWS"] : []),
+    ...(preview.summary.warningRows > 0 ? ["PREVIEW_HAS_WARNING_ROWS"] : []),
+    ...(preview.summary.excludedRows > 0 ? ["PREVIEW_HAS_EXCLUDED_ROWS"] : []),
     ...(preview.summary.skippedRows > 0 ? ["DUPLICATE_OR_SKIPPED_ROWS_PRESENT"] : []),
   ]);
 
   return {
     totalRows: preview.summary.totalRows,
-    normalRows: Math.max(preview.summary.parsableRows - preview.summary.errorRows, 0),
-    excludedOrErrorRows: preview.summary.skippedRows + preview.summary.errorRows,
+    normalRows: Math.max(preview.summary.parsableRows - preview.summary.warningRows - preview.summary.errorRows, 0),
+    excludedRows: preview.summary.excludedRows,
+    warningRows: preview.summary.warningRows,
+    errorRows: preview.summary.errorRows,
+    excludedOrErrorRows: preview.summary.skippedRows + preview.summary.excludedRows + preview.summary.warningRows + preview.summary.errorRows,
+    excludedByReason: preview.summary.excludedByReason,
+    warningByReason: preview.summary.warningByReason,
+    errorByReason: preview.summary.errorByReason,
     partMismatch: Boolean(partMismatch),
     selectedPartCode: preview.summary.partCode,
     filePartCode: partMismatch?.filePartCode ?? extractPartCodeFromText(preview.summary.fileName),
@@ -76,7 +91,13 @@ export function createPreviewChecksum(input: PreviewChecksumInput) {
     filePartCode: input.operationalSummary.filePartCode,
     totalRows: input.operationalSummary.totalRows,
     normalRows: input.operationalSummary.normalRows,
+    excludedRows: input.operationalSummary.excludedRows,
+    warningRows: input.operationalSummary.warningRows,
+    errorRows: input.operationalSummary.errorRows,
     excludedOrErrorRows: input.operationalSummary.excludedOrErrorRows,
+    excludedByReason: sortRecord(input.operationalSummary.excludedByReason),
+    warningByReason: sortRecord(input.operationalSummary.warningByReason),
+    errorByReason: sortRecord(input.operationalSummary.errorByReason),
     amountTotal: input.operationalSummary.amountTotal,
     salesTotal: input.operationalSummary.salesTotal,
     receiptTotal: input.operationalSummary.receiptTotal,
@@ -104,6 +125,8 @@ export function createPreviewChecksum(input: PreviewChecksumInput) {
 export function getApplyDisabledReason(preview: ImportPreviewRecord, status: { canWrite?: boolean }, partMismatch: boolean) {
   if (partMismatch) return "PART_FILE_MISMATCH";
   if (!status.canWrite) return "PREVIEW_ONLY";
+  if (preview.summary.errorRows > 0) return "HAS_ERROR_ROWS";
+  if (preview.summary.warningRows > 0) return "HAS_WARNING_ROWS";
   if (!preview.summary.canCommit) return "PREVIEW_NOT_COMMITTABLE";
   return null;
 }
@@ -117,8 +140,12 @@ function uniqueStrings(values: string[]) {
   return [...new Set(values.filter(Boolean))];
 }
 
-function sortRecord(record: Record<string, number>) {
-  return Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right)));
+function sortRecord(record: Record<string, number | undefined>) {
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter((entry): entry is [string, number] => typeof entry[1] === "number")
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
 function stableStringify(value: unknown): string {

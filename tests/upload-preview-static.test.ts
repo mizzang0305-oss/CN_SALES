@@ -44,6 +44,8 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(previewRouteSource).toContain("previewOnly: true");
     expect(previewRouteSource).toContain("normalizedTableWrite: false");
     expect(previewRouteSource).toContain("operationalSummary");
+    expect(previewRouteSource).toContain("excludedRows");
+    expect(previewRouteSource).toContain("warningRows");
     expect(previewRouteSource).toContain("createPreviewOnlyImportService");
     expect(previewRouteSource).not.toMatch(new RegExp(`raw${"Row"}Json|raw${"_row"}${"_json"}`));
   });
@@ -64,6 +66,12 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).toContain("ackApplyRisk");
     expect(confirmRouteSource).toContain("import_batch_id");
     expect(confirmRouteSource).toContain("APPLY_NOT_APPROVED");
+    expect(confirmRouteSource).toContain("dryRunReady");
+    expect(confirmRouteSource).toContain("actualApplyReady");
+    expect(confirmRouteSource).toContain("actualApplyBlockedReason");
+    expect(confirmRouteSource).toContain("excluded_by_reason");
+    expect(confirmRouteSource).toContain("warning_by_reason");
+    expect(confirmRouteSource).toContain("error_by_reason");
     expect(confirmRouteSource).toContain("createPreviewOnlyImportService");
     expect(confirmRouteSource).toContain("createPreviewChecksum");
     expect(confirmRouteSource).not.toContain("createImportService");

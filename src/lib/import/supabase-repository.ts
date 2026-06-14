@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createNormalizedRows } from "@/lib/import/normalization";
+import { isCommittablePreviewRow } from "@/lib/import/row-classification";
 import { classifyUsageStatus, defaultPartName, normalizeMasterName } from "@/lib/import/master-data";
 import type { ConfirmResult, DashboardTotals, ImportPreviewRecord, ImportRepository } from "@/lib/import/types";
 import type { ParsedLedgerRow } from "@/lib/types";
@@ -126,14 +127,14 @@ export class SupabaseImportRepository implements ImportRepository {
     const context = await this.contextPromise;
     const partId = await this.upsertSalesPart(context, preview.summary.partCode);
 
-    if (preview.summary.errorRows > 0) {
+    if (preview.summary.errorRows > 0 || preview.summary.warningRows > 0) {
       return {
         status: "rejected",
         previewId: preview.previewId,
         inserted: 0,
         updated: 0,
         skipped: 0,
-        errors: preview.summary.errorRows,
+        errors: preview.summary.errorRows + preview.summary.warningRows,
         missingCandidates: 0,
         normalized: { salesTransactions: 0, receiptTransactions: 0, arSnapshots: 0 },
         blockedReasons: ["Preview contains error rows."],
@@ -145,7 +146,7 @@ export class SupabaseImportRepository implements ImportRepository {
     let skipped = 0;
     const changedRows: Array<ParsedLedgerRow & { id: string }> = [];
 
-    for (const row of preview.rows) {
+    for (const row of preview.rows.filter(isCommittablePreviewRow)) {
       const customerId = await this.upsertCustomer(context.companyId, partId, row.customerName);
       const productId = row.productName ? await this.upsertProduct(context.companyId, row.productName) : null;
       const { data: existing, error: existingError } = await this.db()
@@ -258,7 +259,7 @@ export class SupabaseImportRepository implements ImportRepository {
         status: upload.status,
         createdAt: upload.committed_at ?? upload.created_at ?? "",
         appliedCount: Number(summary?.insertRows ?? 0) + Number(summary?.updateRows ?? 0),
-        rejectedCount: Number(summary?.errorRows ?? 0),
+        rejectedCount: Number(summary?.errorRows ?? 0) + Number(summary?.warningRows ?? 0),
         operator: null,
       };
     });
