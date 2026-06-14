@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { createPreviewOnlyImportService, parseRowsFromJson } from "@/lib/import/service-factory";
-import { extractPartCodeFromText, getSelectedFilePartMismatch, normalizePartCode } from "@/lib/import/master-data";
+import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-data";
+import {
+  createPreviewChecksum,
+  getApplyDisabledReason,
+  getConfirmBlockedReason,
+  hashUploadFile,
+  toOperationalPreviewSummary,
+} from "@/lib/import/preview-checksum";
 import type { ImportPreviewRecord } from "@/lib/import/types";
 
 export const runtime = "nodejs";
@@ -33,28 +40,20 @@ function isSupportedPreviewFile(fileName: string) {
   return /\.(xls|xlsx|json)$/i.test(fileName);
 }
 
-function toSafePreviewResponse(preview: ImportPreviewRecord, status: PreviewServiceStatus) {
-  const rows = preview.rows.map((row) => ({
-    rowKey: `${row.rowIndex}:${row.rowType}:${row.ledgerDate}:${row.customerCode ?? ""}:${row.customerName ?? ""}:${row.productName ?? ""}`,
+function toSafePreviewResponse(preview: ImportPreviewRecord, status: PreviewServiceStatus, sourceFileHash: string) {
+  const sampleRows = preview.rows.slice(0, 20).map((row) => ({
+    rowKey: `${row.rowIndex}:${row.rowType}`,
     rowIndex: row.rowIndex,
     rowType: row.rowType,
     partCode: row.partCode,
     ledgerDate: row.ledgerDate,
-    customerCode: row.customerCode,
-    customerName: row.customerName,
-    productName: row.productName,
-    quantity: row.quantity,
-    unitPrice: row.unitPrice,
-    salesAmount: row.salesAmount,
-    receiptAmount: row.receiptAmount,
-    receiptDiscount: row.receiptDiscount,
-    arBalance: row.arBalance,
     errors: row.errors,
     action: row.action,
   }));
 
   const operationalSummary = toOperationalPreviewSummary(preview, status.blockedReasons);
   const applyReason = getApplyDisabledReason(preview, status, operationalSummary.partMismatch);
+  const confirmBlockedReason = getConfirmBlockedReason(operationalSummary);
 
   return {
     ok: true,
@@ -62,11 +61,15 @@ function toSafePreviewResponse(preview: ImportPreviewRecord, status: PreviewServ
     uploadId: preview.uploadId,
     uploadRecordId: preview.uploadRecordId,
     summary: preview.summary,
-    rows,
-    sampleRows: rows.slice(0, 20),
+    rows: [],
+    sampleRows,
     blockedReasons: preview.blockedReasons,
     rowTypeCounts: preview.rowTypeCounts,
     operationalSummary,
+    sourceFileHash,
+    previewChecksum: createPreviewChecksum({ sourceFileHash, preview, operationalSummary }),
+    confirmCandidate: !confirmBlockedReason,
+    confirmBlockedReason,
     mode: status.mode,
     blocked_reasons: status.blockedReasons,
     apply: {
@@ -74,48 +77,6 @@ function toSafePreviewResponse(preview: ImportPreviewRecord, status: PreviewServ
       reason: applyReason ?? "OPERATOR_CONFIRMATION_REQUIRED",
     },
   };
-}
-
-function toOperationalPreviewSummary(preview: ImportPreviewRecord, envBlockedReasons: string[]) {
-  const customerNames = new Set(preview.rows.map((row) => row.customerName?.trim()).filter(Boolean));
-  const productNames = new Set(preview.rows.map((row) => row.productName?.trim()).filter(Boolean));
-  const partMismatch = getSelectedFilePartMismatch({
-    selectedPartCode: preview.summary.partCode,
-    fileName: preview.summary.fileName,
-  });
-  const warnings = uniqueStrings([
-    ...preview.blockedReasons,
-    ...envBlockedReasons,
-    ...(partMismatch ? [partMismatch.code] : []),
-    ...(preview.summary.errorRows > 0 ? ["PREVIEW_HAS_ERROR_ROWS"] : []),
-    ...(preview.summary.skippedRows > 0 ? ["DUPLICATE_OR_SKIPPED_ROWS_PRESENT"] : []),
-  ]);
-
-  return {
-    totalRows: preview.summary.totalRows,
-    normalRows: Math.max(preview.summary.parsableRows - preview.summary.errorRows, 0),
-    excludedOrErrorRows: preview.summary.skippedRows + preview.summary.errorRows,
-    partMismatch: Boolean(partMismatch),
-    selectedPartCode: preview.summary.partCode,
-    filePartCode: partMismatch?.filePartCode ?? extractPartCodeFromText(preview.summary.fileName),
-    amountTotal: preview.summary.salesTotal + preview.summary.receiptTotal,
-    salesTotal: preview.summary.salesTotal,
-    receiptTotal: preview.summary.receiptTotal,
-    customerCount: customerNames.size,
-    productCount: productNames.size,
-    warnings,
-  };
-}
-
-function getApplyDisabledReason(preview: ImportPreviewRecord, status: PreviewServiceStatus, partMismatch: boolean) {
-  if (partMismatch) return "PART_FILE_MISMATCH";
-  if (!status.canWrite) return "PREVIEW_ONLY";
-  if (!preview.summary.canCommit) return "PREVIEW_NOT_COMMITTABLE";
-  return null;
-}
-
-function uniqueStrings(values: string[]) {
-  return [...new Set(values.filter(Boolean))];
 }
 
 export async function POST(request: Request) {
@@ -134,6 +95,7 @@ export async function POST(request: Request) {
         return invalidUploadResponse(415);
       }
 
+      const { sourceFileHash } = await hashUploadFile(file);
       const selectedPartCode = normalizePartCode(String(formData.get("partCode") ?? formData.get("selectedPart") ?? "1"));
       const filePartCode = extractPartCodeFromText(file.name);
       const { status, service } = await createPreviewOnlyImportService();
@@ -164,7 +126,7 @@ export async function POST(request: Request) {
         canCommit: preview.summary.canCommit,
       });
 
-      return NextResponse.json(toSafePreviewResponse(preview, status));
+      return NextResponse.json(toSafePreviewResponse(preview, status, sourceFileHash));
     }
 
     const body = (await request.json()) as {
@@ -177,6 +139,7 @@ export async function POST(request: Request) {
     const file = new File([JSON.stringify(body.rows ?? [])], body.fileName ?? "ledger.json", {
       type: "application/json",
     });
+    const { sourceFileHash } = await hashUploadFile(file);
     const selectedPartCode = normalizePartCode(body.partCode ?? "1");
     const filePartCode = extractPartCodeFromText(file.name);
     const { status, service } = await createPreviewOnlyImportService(parseRowsFromJson(body.rows ?? []));
@@ -207,7 +170,7 @@ export async function POST(request: Request) {
       canCommit: preview.summary.canCommit,
     });
 
-    return NextResponse.json(toSafePreviewResponse(preview, status));
+    return NextResponse.json(toSafePreviewResponse(preview, status, sourceFileHash));
   } catch (error) {
     logPreviewEvent("failed", {
       normalizedTableWrite: false,
