@@ -65,6 +65,8 @@ describe("upload preview route response safety", () => {
         warnings: string[];
       };
       apply?: { enabled?: boolean; reason?: string };
+      mode?: string;
+      blocked_reasons?: string[];
     };
 
     expect(response.status).toBe(200);
@@ -77,6 +79,8 @@ describe("upload preview route response safety", () => {
     expect(body.rows[0]).not.toHaveProperty("contentHash");
     expect(body.apply?.enabled).toBe(false);
     expect(body.apply?.reason).toBe("PREVIEW_ONLY");
+    expect(body.mode).toBe("fixture");
+    expect(body.blocked_reasons).toContain("PREVIEW_ONLY");
     expect(body.operationalSummary).toMatchObject({
       totalRows: 2,
       normalRows: 2,

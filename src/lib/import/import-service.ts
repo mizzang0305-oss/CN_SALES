@@ -107,9 +107,19 @@ export class ImportService {
     if (!preview) {
       return this.rejectedConfirm({
         previewId,
-        reason: "Preview result was not found.",
+        reason: "PREVIEW_NOT_FOUND",
         operator,
         createdAt,
+      });
+    }
+
+    if (!preview.summary.canCommit || preview.summary.errorRows > 0) {
+      return this.rejectedConfirm({
+        previewId,
+        reason: "PREVIEW_NOT_COMMITTABLE",
+        operator,
+        createdAt,
+        importBatchId: preview.uploadRecordId,
       });
     }
 
@@ -152,11 +162,11 @@ export class ImportService {
     };
   }
 
-  private rejectedConfirm(input: { previewId: string; reason: string; operator: string | null; createdAt: string }) {
+  private rejectedConfirm(input: { previewId: string; reason: string; operator: string | null; createdAt: string; importBatchId?: string }) {
     return {
       status: "rejected" as const,
       previewId: input.previewId,
-      importBatchId: input.previewId,
+      importBatchId: input.importBatchId ?? input.previewId,
       appliedCount: 0,
       rejectedCount: 1,
       operator: input.operator,

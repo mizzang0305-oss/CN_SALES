@@ -7,7 +7,6 @@ const uploadCenterSource = readFileSync(join(process.cwd(), "src", "components",
 const previewRouteSource = readFileSync(join(process.cwd(), "src", "app", "api", "uploads", "preview", "route.ts"), "utf8");
 const confirmRouteSource = readFileSync(join(process.cwd(), "src", "app", "api", "uploads", "confirm", "route.ts"), "utf8");
 const serviceFactorySource = readFileSync(join(process.cwd(), "src", "lib", "import", "service-factory.ts"), "utf8");
-const supabaseRepositorySource = readFileSync(join(process.cwd(), "src", "lib", "import", "supabase-repository.ts"), "utf8");
 
 describe("upload preview safety and part mismatch guards", () => {
   it("detects the part code from Korean XLS file names and warns on selected part mismatch", () => {
@@ -37,11 +36,22 @@ describe("upload preview safety and part mismatch guards", () => {
   it("marks the preview route as node runtime and logs only high-level preview side effects", () => {
     expect(previewRouteSource).toContain('export const runtime = "nodejs"');
     expect(previewRouteSource).toContain("parserCalled: true");
+    expect(previewRouteSource).toContain("storageSaved: false");
     expect(previewRouteSource).toContain("previewRecordCreated");
+    expect(previewRouteSource).toContain("previewOnly: true");
     expect(previewRouteSource).toContain("normalizedTableWrite: false");
     expect(previewRouteSource).toContain("operationalSummary");
-    expect(previewRouteSource).toContain("createOperatorPreviewImportService");
+    expect(previewRouteSource).toContain("createPreviewOnlyImportService");
     expect(previewRouteSource).not.toMatch(new RegExp(`raw${"Row"}Json|raw${"_row"}${"_json"}`));
+  });
+
+  it("keeps the preview route out of write-enabled import and storage paths", () => {
+    expect(previewRouteSource).not.toContain("createOperatorPreviewImportService");
+    expect(previewRouteSource).not.toContain("createImportService");
+    expect(previewRouteSource).not.toContain("SupabaseUploadStorageAdapter");
+    expect(previewRouteSource).not.toContain("ledger_uploads");
+    expect(previewRouteSource).not.toContain("upload_preview_results");
+    expect(previewRouteSource).not.toMatch(/insert\(|upsert\(|update\(|delete\(|rpc\(/);
   });
 
   it("requires operator confirmations on the confirm route before DB apply", () => {
@@ -54,14 +64,11 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).not.toContain("error.message");
   });
 
-  it("does not write normalized ledger tables during Supabase preview creation", () => {
-    const createPreviewSource = sliceMethod(supabaseRepositorySource, "createPreview", "getExistingContentHashes");
-
-    expect(createPreviewSource).toContain('.from("ledger_uploads")');
-    expect(createPreviewSource).toContain('.from("upload_preview_results")');
-    for (const tableName of ["ledger_rows", "sales_transactions", "receipt_transactions", "ar_snapshots"]) {
-      expect(createPreviewSource).not.toContain(`.from("${tableName}")`);
-    }
+  it("keeps preview-only service separate from Supabase preview persistence", () => {
+    expect(serviceFactorySource).toContain("createPreviewOnlyImportService");
+    expect(serviceFactorySource).toContain("PreviewOnlyStorageAdapter");
+    expect(serviceFactorySource).toContain("PreviewOnlyImportRepository");
+    expect(serviceFactorySource).toContain("export const createPreviewImportService = createPreviewOnlyImportService");
   });
 
   it("uses a local admin profile fallback only outside production when no browser session exists", () => {
@@ -71,11 +78,3 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(serviceFactorySource).toContain("loadContextForProfile(serviceRoleClient");
   });
 });
-
-function sliceMethod(source: string, methodName: string, nextMethodName: string) {
-  const start = source.indexOf(`async ${methodName}`);
-  const end = source.indexOf(`\n  async ${nextMethodName}`, start);
-  expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  return source.slice(start, end);
-}

@@ -138,7 +138,7 @@ export async function createImportService(parseRows = parseWithPythonWorker) {
   };
 }
 
-export async function createPreviewImportService(parseRows = parseWithPythonWorker) {
+export async function createPreviewOnlyImportService(parseRows = parseWithPythonWorker) {
   const status = {
     ...getRuntimeEnvStatus(),
     mode: "fixture" as const,
@@ -158,11 +158,7 @@ export async function createPreviewImportService(parseRows = parseWithPythonWork
   };
 }
 
-export async function createOperatorPreviewImportService(parseRows = parseWithPythonWorker) {
-  const status = getRuntimeEnvStatus();
-  if (!status.canWrite) return createPreviewImportService(parseRows);
-  return createImportService(parseRows);
-}
+export const createPreviewImportService = createPreviewOnlyImportService;
 
 export async function createDashboardRepository(): Promise<{ status: ReturnType<typeof getRuntimeEnvStatus>; repository: ImportRepository | null }> {
   const status = getRuntimeEnvStatus();

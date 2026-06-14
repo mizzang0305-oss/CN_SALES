@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createOperatorPreviewImportService, createPreviewImportService, parseRowsFromJson } from "@/lib/import/service-factory";
+import { createPreviewOnlyImportService, parseRowsFromJson } from "@/lib/import/service-factory";
 import { extractPartCodeFromText, getSelectedFilePartMismatch, normalizePartCode } from "@/lib/import/master-data";
 import type { ImportPreviewRecord } from "@/lib/import/types";
 
@@ -136,7 +136,7 @@ export async function POST(request: Request) {
 
       const selectedPartCode = normalizePartCode(String(formData.get("partCode") ?? formData.get("selectedPart") ?? "1"));
       const filePartCode = extractPartCodeFromText(file.name);
-      const { status, service } = await createOperatorPreviewImportService();
+      const { status, service } = await createPreviewOnlyImportService();
       logPreviewEvent("start", {
         requestMode: "file",
         serviceMode: status.mode,
@@ -155,8 +155,9 @@ export async function POST(request: Request) {
         requestMode: "file",
         serviceMode: status.mode,
         parserCalled: true,
-        storageSaved: true,
-        previewRecordCreated: Boolean(preview.previewId),
+        storageSaved: false,
+        previewRecordCreated: false,
+        previewOnly: true,
         normalizedTableWrite: false,
         totalRows: preview.summary.totalRows,
         errorRows: preview.summary.errorRows,
@@ -178,7 +179,7 @@ export async function POST(request: Request) {
     });
     const selectedPartCode = normalizePartCode(body.partCode ?? "1");
     const filePartCode = extractPartCodeFromText(file.name);
-    const { status, service } = await createPreviewImportService(parseRowsFromJson(body.rows ?? []));
+    const { status, service } = await createPreviewOnlyImportService(parseRowsFromJson(body.rows ?? []));
     logPreviewEvent("start", {
       requestMode: "fixture",
       serviceMode: status.mode,
@@ -197,8 +198,9 @@ export async function POST(request: Request) {
       requestMode: "fixture",
       serviceMode: status.mode,
       parserCalled: false,
-      storageSaved: true,
-      previewRecordCreated: Boolean(preview.previewId),
+      storageSaved: false,
+      previewRecordCreated: false,
+      previewOnly: true,
       normalizedTableWrite: false,
       totalRows: preview.summary.totalRows,
       errorRows: preview.summary.errorRows,

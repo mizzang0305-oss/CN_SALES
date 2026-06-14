@@ -147,7 +147,8 @@ describe("Phase 2 Supabase-style import flow", () => {
 
     expect(blockedPreview.blockedReasons).toContain("PART_REQUIRED");
     expect(blockedPreview.summary.canCommit).toBe(false);
-    expect(blockedConfirm.status).toBe("blocked");
+    expect(blockedConfirm.status).toBe("rejected");
+    expect(blockedConfirm.blockedReasons).toContain("PREVIEW_NOT_COMMITTABLE");
     expect(blockedRepository.ledgerRows).toHaveLength(0);
 
     const rowPartRepository = new MemoryImportRepository();
@@ -165,6 +166,56 @@ describe("Phase 2 Supabase-style import flow", () => {
 
     expect(rowPartPreview.summary.partCode).toBe("7");
     expect(rowPartPreview.blockedReasons).toEqual([]);
+  });
+
+  it("blocks confirm when the selected part and file part do not match", async () => {
+    const repository = new MemoryImportRepository();
+    const service = new ImportService({
+      repository,
+      storage: new MemoryStorageAdapter(),
+      parseRows: async () => masterRows,
+    });
+
+    const preview = await service.preview({
+      file: new File(["fixture"], "part-11-ledger.xlsx"),
+      partCode: "1",
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+    });
+    const result = await service.confirm(preview.previewId, operatorApproval);
+
+    expect(preview.summary.canCommit).toBe(true);
+    expect(result.status).toBe("blocked");
+    expect(result.blockedReasons).toContain("PART_FILE_MISMATCH");
+    expect(repository.ledgerRows).toHaveLength(0);
+    expect(repository.normalized.salesTransactions).toHaveLength(0);
+  });
+
+  it("rejects confirm when a stored preview still has error rows", async () => {
+    const repository = new MemoryImportRepository();
+    const service = new ImportService({
+      repository,
+      storage: new MemoryStorageAdapter(),
+      parseRows: async () => masterRows,
+    });
+
+    const preview = await service.preview({
+      file: new File(["fixture"], "ledger.xlsx"),
+      partCode: "A",
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+    });
+    const storedPreview = repository.previewResults.get(preview.previewId);
+    expect(storedPreview).toBeTruthy();
+    storedPreview!.summary.errorRows = 1;
+    storedPreview!.summary.canCommit = true;
+
+    const result = await service.confirm(preview.previewId, operatorApproval);
+
+    expect(result.status).toBe("rejected");
+    expect(result.blockedReasons).toContain("PREVIEW_NOT_COMMITTABLE");
+    expect(repository.ledgerRows).toHaveLength(0);
+    expect(repository.normalized.salesTransactions).toHaveLength(0);
   });
 
   it("upserts ledger-derived customer, product, aliases, and usage without duplicating skipped confirms", async () => {
@@ -221,6 +272,17 @@ describe("Phase 2 Supabase-style import flow", () => {
 
     expect(result.status).toBe("rejected");
     expect(result.blockedReasons).toContain("OPERATOR_REQUIRED");
+    expect(repository.ledgerRows).toHaveLength(0);
+    expect(repository.normalized.salesTransactions).toHaveLength(0);
+  });
+
+  it("rejects confirm when the preview does not exist", async () => {
+    const { repository, service } = createService();
+
+    const result = await service.confirm("missing-preview-id", operatorApproval);
+
+    expect(result.status).toBe("rejected");
+    expect(result.blockedReasons).toContain("PREVIEW_NOT_FOUND");
     expect(repository.ledgerRows).toHaveLength(0);
     expect(repository.normalized.salesTransactions).toHaveLength(0);
   });
