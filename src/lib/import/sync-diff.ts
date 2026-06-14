@@ -26,6 +26,13 @@ export interface LedgerSyncDiffPlan {
     noChangeRows: number;
     duplicateIncomingKeys: number;
     duplicateExistingKeys: number;
+    duplicateIncomingIdentityHashes: number;
+    duplicateExistingIdentityHashes: number;
+  };
+  diagnostics: {
+    incomingIdentity: DuplicateSyncKeySummary;
+    existingIdentity: DuplicateSyncKeySummary;
+    incomingNaturalKey: DuplicateSyncKeySummary;
   };
   safety: {
     dbWriteExecuted: false;
@@ -38,6 +45,14 @@ export interface LedgerSyncDiffPlan {
     selectedColumnsOnly: true;
     selectStarUsed: false;
   };
+}
+
+export interface DuplicateSyncKeySummary {
+  duplicateKeyCount: number;
+  duplicateRowCount: number;
+  maxDuplicateGroupSize: number;
+  groupsWithSameContentHash: number;
+  groupsWithMixedContentHash: number;
 }
 
 export function deriveLedgerSyncScope(input: {
@@ -63,11 +78,16 @@ export function planLedgerSyncDiff(input: {
 }): LedgerSyncDiffPlan {
   const incomingByKey = firstBySyncKey(input.incomingRows);
   const existingByKey = firstBySyncKey(input.existingRows);
-  const duplicateIncomingKeys = duplicateKeyCount(input.incomingRows);
-  const duplicateExistingKeys = duplicateKeyCount(input.existingRows);
+  const incomingIdentityDiagnostics = summarizeDuplicateSyncKeys(input.incomingRows);
+  const existingIdentityDiagnostics = summarizeDuplicateSyncKeys(input.existingRows);
+  const incomingNaturalKeyDiagnostics = summarizeDuplicateNaturalKeys(input.incomingRows);
+  const duplicateIncomingKeys = incomingIdentityDiagnostics.duplicateKeyCount;
+  const duplicateExistingKeys = existingIdentityDiagnostics.duplicateKeyCount;
   const blockedReasons = [
     ...(duplicateIncomingKeys > 0 ? ["DUPLICATE_INCOMING_SYNC_KEYS"] : []),
     ...(duplicateExistingKeys > 0 ? ["DUPLICATE_EXISTING_SYNC_KEYS"] : []),
+    ...(input.incomingSummary.warningRows > 0 ? ["HAS_WARNING_ROWS"] : []),
+    ...(input.incomingSummary.errorRows > 0 ? ["HAS_ERROR_ROWS"] : []),
     ...(input.readOnlyEvidence?.readBlockedReason ? [input.readOnlyEvidence.readBlockedReason] : []),
   ];
   let insertCandidates = 0;
@@ -110,6 +130,13 @@ export function planLedgerSyncDiff(input: {
       noChangeRows,
       duplicateIncomingKeys,
       duplicateExistingKeys,
+      duplicateIncomingIdentityHashes: duplicateIncomingKeys,
+      duplicateExistingIdentityHashes: duplicateExistingKeys,
+    },
+    diagnostics: {
+      incomingIdentity: incomingIdentityDiagnostics,
+      existingIdentity: existingIdentityDiagnostics,
+      incomingNaturalKey: incomingNaturalKeyDiagnostics,
     },
     safety: {
       dbWriteExecuted: false,
@@ -139,10 +166,34 @@ function firstBySyncKey(rows: LedgerSyncRow[]) {
   return map;
 }
 
-function duplicateKeyCount(rows: LedgerSyncRow[]) {
-  const counts = new Map<string, number>();
+export function summarizeDuplicateSyncKeys(rows: LedgerSyncRow[]): DuplicateSyncKeySummary {
+  return summarizeDuplicateGroups(rows.map((row) => ({
+    key: row.syncKey,
+    contentHash: row.syncContentHash,
+  })));
+}
+
+function summarizeDuplicateNaturalKeys(rows: LedgerSyncRow[]): DuplicateSyncKeySummary {
+  return summarizeDuplicateGroups(rows.map((row) => ({
+    key: row.naturalKey,
+    contentHash: row.syncContentHash,
+  })));
+}
+
+function summarizeDuplicateGroups(rows: Array<{ key: string; contentHash: string }>): DuplicateSyncKeySummary {
+  const groups = new Map<string, string[]>();
   for (const row of rows) {
-    counts.set(row.syncKey, (counts.get(row.syncKey) ?? 0) + 1);
+    const contentHashes = groups.get(row.key) ?? [];
+    contentHashes.push(row.contentHash);
+    groups.set(row.key, contentHashes);
   }
-  return [...counts.values()].filter((count) => count > 1).length;
+  const duplicateGroups = [...groups.values()].filter((contentHashes) => contentHashes.length > 1);
+
+  return {
+    duplicateKeyCount: duplicateGroups.length,
+    duplicateRowCount: duplicateGroups.reduce((sum, contentHashes) => sum + contentHashes.length, 0),
+    maxDuplicateGroupSize: duplicateGroups.reduce((max, contentHashes) => Math.max(max, contentHashes.length), 0),
+    groupsWithSameContentHash: duplicateGroups.filter((contentHashes) => new Set(contentHashes).size === 1).length,
+    groupsWithMixedContentHash: duplicateGroups.filter((contentHashes) => new Set(contentHashes).size > 1).length,
+  };
 }

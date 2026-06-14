@@ -19,8 +19,13 @@ export interface LedgerSyncSourceRow {
 }
 
 export interface LedgerSyncRow {
+  naturalKey: string;
+  occurrenceIndexWithinNaturalKey: number;
+  identityHash: string;
+  contentHash: string;
   syncKey: string;
   syncContentHash: string;
+  keyVersion: "natural_occurrence_v2" | "schema_identity_v1";
   partCode: string;
   ledgerDate: string;
   rowType: LedgerRowType;
@@ -32,8 +37,13 @@ export function createLedgerIdentitySyncRows(
   rows: Array<(LedgerSyncSourceRow | ParsedLedgerRow) & { identityHash: string; contentHash: string }>,
 ): LedgerSyncRow[] {
   return rows.map((row) => ({
+    naturalKey: `schema_identity_v1:${row.identityHash}`,
+    occurrenceIndexWithinNaturalKey: 1,
+    identityHash: row.identityHash,
+    contentHash: row.contentHash,
     syncKey: row.identityHash,
     syncContentHash: row.contentHash,
+    keyVersion: "schema_identity_v1",
     partCode: row.partCode,
     ledgerDate: row.ledgerDate,
     rowType: row.rowType,
@@ -45,25 +55,32 @@ export function createLedgerSyncRows(rows: Array<LedgerSyncSourceRow | ParsedLed
   const grouped = new Map<string, Array<{ row: LedgerSyncSourceRow | ParsedLedgerRow; index: number }>>();
 
   rows.forEach((row, index) => {
-    const baseKey = createSyncBaseKey(row);
-    const bucket = grouped.get(baseKey) ?? [];
+    const naturalKey = createSyncNaturalKey(row);
+    const bucket = grouped.get(naturalKey) ?? [];
     bucket.push({ row, index });
-    grouped.set(baseKey, bucket);
+    grouped.set(naturalKey, bucket);
   });
 
   const output: LedgerSyncRow[] = [];
-  for (const [baseKey, bucket] of grouped.entries()) {
+  for (const [naturalKey, bucket] of grouped.entries()) {
     const sorted = [...bucket].sort((left, right) => left.row.rowIndex - right.row.rowIndex || left.index - right.index);
     sorted.forEach(({ row, index }, ordinalIndex) => {
-      const syncOrdinal = sorted.length > 1 ? ordinalIndex + 1 : undefined;
+      const occurrenceIndexWithinNaturalKey = ordinalIndex + 1;
+      const identityHash = stableHash({ naturalKey, occurrenceIndexWithinNaturalKey });
+      const contentHash = createSyncContentHash(row);
       output[index] = {
-        syncKey: stableHash({ baseKey, syncOrdinal: syncOrdinal ?? 1 }),
-        syncContentHash: createSyncContentHash(row),
+        naturalKey,
+        occurrenceIndexWithinNaturalKey,
+        identityHash,
+        contentHash,
+        syncKey: identityHash,
+        syncContentHash: contentHash,
+        keyVersion: "natural_occurrence_v2",
         partCode: row.partCode,
         ledgerDate: row.ledgerDate,
         rowType: row.rowType,
         rowIndex: row.rowIndex,
-        syncOrdinal,
+        syncOrdinal: occurrenceIndexWithinNaturalKey,
       };
     });
   }
@@ -85,13 +102,14 @@ export function createSyncContentHash(row: LedgerSyncSourceRow | ParsedLedgerRow
   });
 }
 
-function createSyncBaseKey(row: LedgerSyncSourceRow | ParsedLedgerRow) {
+function createSyncNaturalKey(row: LedgerSyncSourceRow | ParsedLedgerRow) {
   return stableHash({
     partCode: row.partCode,
     ledgerDate: row.ledgerDate,
-    rowType: row.rowType,
     customerKey: customerKey(row),
+    documentNo: documentNoOrBlank(row),
     productKey: productKey(row),
+    rowType: row.rowType,
   });
 }
 
@@ -101,4 +119,9 @@ function customerKey(row: LedgerSyncSourceRow | ParsedLedgerRow) {
 
 function productKey(row: LedgerSyncSourceRow | ParsedLedgerRow) {
   return normalizeMasterName(row.productName || "");
+}
+
+function documentNoOrBlank(row: LedgerSyncSourceRow | ParsedLedgerRow) {
+  void row;
+  return "";
 }

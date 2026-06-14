@@ -107,6 +107,13 @@ type DryRunReport = {
       noChangeRows: number;
       duplicateIncomingKeys: number;
       duplicateExistingKeys: number;
+      duplicateIncomingIdentityHashes?: number;
+      duplicateExistingIdentityHashes?: number;
+    };
+    diagnostics?: {
+      incomingIdentity: { duplicateKeyCount: number; duplicateRowCount: number; maxDuplicateGroupSize: number };
+      existingIdentity: { duplicateKeyCount: number; duplicateRowCount: number; maxDuplicateGroupSize: number };
+      incomingNaturalKey: { duplicateKeyCount: number; duplicateRowCount: number; maxDuplicateGroupSize: number };
     };
     safety: {
       dbWriteExecuted: boolean;
@@ -118,7 +125,14 @@ type DryRunReport = {
       readBlockedReason: string | null;
       selectedColumnsOnly: boolean;
       selectStarUsed: boolean;
-    };
+      };
+  };
+  legacySchemaIdentityDiagnostics?: {
+    duplicateKeyCount: number;
+    duplicateRowCount: number;
+    maxDuplicateGroupSize: number;
+    groupsWithSameContentHash: number;
+    groupsWithMixedContentHash: number;
   };
   error?: { code?: string; message?: string };
   blocked_reasons?: string[];
@@ -497,6 +511,11 @@ export function UploadCenter() {
                       <ReportField label="noChangeRows" value={formatNumber(dryRunReport.syncDiff.diff.noChangeRows)} />
                       <ReportField label="duplicateIncomingKeys" value={formatNumber(dryRunReport.syncDiff.diff.duplicateIncomingKeys)} />
                       <ReportField label="duplicateExistingKeys" value={formatNumber(dryRunReport.syncDiff.diff.duplicateExistingKeys)} />
+                      <ReportField label="incomingIdentityDuplicates" value={formatNumber(dryRunReport.syncDiff.diff.duplicateIncomingIdentityHashes ?? dryRunReport.syncDiff.diff.duplicateIncomingKeys)} />
+                      <ReportField label="incomingNaturalKeyGroups" value={formatNumber(dryRunReport.syncDiff.diagnostics?.incomingNaturalKey.duplicateKeyCount ?? 0)} />
+                      <ReportField label="incomingNaturalKeyMaxGroup" value={formatNumber(dryRunReport.syncDiff.diagnostics?.incomingNaturalKey.maxDuplicateGroupSize ?? 0)} />
+                      <ReportField label="legacySchemaDuplicates" value={formatNumber(dryRunReport.legacySchemaIdentityDiagnostics?.duplicateKeyCount ?? 0)} />
+                      <ReportField label="legacySchemaMaxGroup" value={formatNumber(dryRunReport.legacySchemaIdentityDiagnostics?.maxDuplicateGroupSize ?? 0)} />
                       <ReportField label="db_read" value={dryRunReport.syncDiff.readOnlyEvidence?.readExecuted ? "true" : "false"} />
                       <ReportField label="delete_executed" value={dryRunReport.syncDiff.safety.deleteExecuted ? "true" : "false"} />
                       <ReportField label="db_write" value={dryRunReport.syncDiff.safety.dbWriteExecuted ? "true" : "false"} />

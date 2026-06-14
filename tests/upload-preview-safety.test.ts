@@ -242,6 +242,16 @@ describe("upload preview route response safety", () => {
         error_by_reason: Record<string, number>;
       };
       side_effects: { dbWrite: boolean; storageWrite: boolean; normalizedTableWrite: boolean; actualApply: boolean };
+      syncKeyPolicy?: {
+        version: string;
+        occurrenceIndexWithinNaturalKey: boolean;
+        amountInIdentityKey: boolean;
+        contentHashIncludesAmounts: boolean;
+      };
+      legacySchemaIdentityDiagnostics?: {
+        duplicateKeyCount: number;
+        maxDuplicateGroupSize: number;
+      };
       syncDiff?: {
         scope: { partCode: string; dateFrom: string; dateTo: string };
         incoming: { normalRows: number; excludedRows: number; warningRows: number; errorRows: number };
@@ -253,6 +263,12 @@ describe("upload preview route response safety", () => {
           noChangeRows: number;
           duplicateIncomingKeys: number;
           duplicateExistingKeys: number;
+          duplicateIncomingIdentityHashes: number;
+          duplicateExistingIdentityHashes: number;
+        };
+        diagnostics: {
+          incomingIdentity: { duplicateKeyCount: number };
+          incomingNaturalKey: { duplicateKeyCount: number; maxDuplicateGroupSize: number };
         };
         safety: { dbWriteExecuted: boolean; deleteExecuted: boolean; productionPostExecuted: boolean };
       };
@@ -280,6 +296,16 @@ describe("upload preview route response safety", () => {
       normalizedTableWrite: false,
       actualApply: false,
     });
+    expect(body.syncKeyPolicy).toMatchObject({
+      version: "natural_occurrence_v2",
+      occurrenceIndexWithinNaturalKey: true,
+      amountInIdentityKey: false,
+      contentHashIncludesAmounts: true,
+    });
+    expect(body.legacySchemaIdentityDiagnostics).toMatchObject({
+      duplicateKeyCount: 0,
+      maxDuplicateGroupSize: 0,
+    });
     expect(body.syncDiff).toMatchObject({
       scope: { partCode: "5", dateFrom: "2026-06-05", dateTo: "2026-06-05" },
       incoming: { normalRows: 2, excludedRows: 0, warningRows: 0, errorRows: 0 },
@@ -291,6 +317,12 @@ describe("upload preview route response safety", () => {
         noChangeRows: 0,
         duplicateIncomingKeys: 0,
         duplicateExistingKeys: 0,
+        duplicateIncomingIdentityHashes: 0,
+        duplicateExistingIdentityHashes: 0,
+      },
+      diagnostics: {
+        incomingIdentity: { duplicateKeyCount: 0 },
+        incomingNaturalKey: { duplicateKeyCount: 0, maxDuplicateGroupSize: 0 },
       },
       safety: {
         dbWriteExecuted: false,
