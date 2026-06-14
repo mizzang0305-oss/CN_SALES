@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
-import { createPreviewOnlyImportService } from "@/lib/import/service-factory";
+import { createImportService, createPreviewOnlyImportService } from "@/lib/import/service-factory";
+import {
+  loadLimitedApplyApproval,
+  selectLimitedApplyRows,
+  validateLimitedApplyPreconditions,
+} from "@/lib/import/limited-apply";
 import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-data";
 import { createPreviewChecksum, hashUploadFile, toOperationalPreviewSummary } from "@/lib/import/preview-checksum";
 import { isCommittablePreviewRow } from "@/lib/import/row-classification";
+import { SupabaseImportRepository } from "@/lib/import/supabase-repository";
 import { readExistingLedgerRowsForSync } from "@/lib/import/sync-existing-reader";
 import { deriveLedgerSyncScope, planLedgerSyncDiff, summarizeDuplicateSyncKeys } from "@/lib/import/sync-diff";
 import { createLedgerIdentitySyncRows, createLedgerSyncRows } from "@/lib/import/sync-key";
@@ -52,6 +58,13 @@ function getBoolean(formData: FormData, key: string) {
   return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
+function getNumber(formData: FormData, key: string) {
+  const value = getString(formData, key);
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function missingAcknowledgements(formData: FormData) {
   const missing: string[] = [];
   if (!getBoolean(formData, "ackPreviewReviewed")) missing.push("ackPreviewReviewed");
@@ -68,7 +81,10 @@ export async function POST(request: Request) {
     }
 
     const formData = await request.formData();
-    if (!getBoolean(formData, "dryRun")) {
+    const dryRun = getBoolean(formData, "dryRun");
+    const approvalStage = getString(formData, "approvalStage");
+    const limitedApplyRequested = !dryRun && approvalStage === "G-6B";
+    if (!dryRun && !limitedApplyRequested) {
       return applyNotApprovedResponse();
     }
 
@@ -180,7 +196,8 @@ export async function POST(request: Request) {
     });
     const legacySchemaIdentityDiagnostics = summarizeDuplicateSyncKeys(legacyIncomingSyncRows);
 
-    return NextResponse.json({
+    if (dryRun) {
+      return NextResponse.json({
       ok: true,
       dryRun: true,
       dryRunReady,
@@ -226,6 +243,139 @@ export async function POST(request: Request) {
       },
       legacySchemaIdentityDiagnostics,
       syncDiff,
+      });
+    }
+
+    const approvalValidation = await loadLimitedApplyApproval();
+    if (!approvalValidation.ok || !approvalValidation.approval) {
+      return safeError(403, "LIMITED_APPLY_APPROVAL_BLOCKED", "Limited apply approval file is missing or invalid.", {
+        dryRun: false,
+        blocked_reasons: approvalValidation.blockedReasons,
+        actualApplyReady: false,
+        actualApplyBlockedReason: "LIMITED_APPLY_APPROVAL_BLOCKED",
+      });
+    }
+
+    const requestedMaxRows = getNumber(formData, "maxRows");
+    if (requestedMaxRows !== approvalValidation.approval.max_rows) {
+      return safeError(409, "LIMITED_APPLY_MAX_ROWS_MISMATCH", "Requested limited apply row cap does not match approval.", {
+        dryRun: false,
+        actualApplyReady: false,
+        actualApplyBlockedReason: "LIMITED_APPLY_MAX_ROWS_MISMATCH",
+      });
+    }
+
+    const preconditions = validateLimitedApplyPreconditions({
+      approval: approvalValidation.approval,
+      sourceFileHash,
+      selectedPartCode,
+      syncDiff,
+    });
+    if (!preconditions.ok) {
+      return safeError(409, "LIMITED_APPLY_PRECHECK_BLOCKED", "Limited apply precheck failed.", {
+        dryRun: false,
+        blocked_reasons: preconditions.blockedReasons,
+        actualApplyReady: false,
+        actualApplyBlockedReason: "LIMITED_APPLY_PRECHECK_BLOCKED",
+        syncDiff,
+      });
+    }
+
+    const selectedRows = selectLimitedApplyRows({
+      rows: committableRows,
+      syncRows: incomingSyncRows,
+      existingRows: existingRead.rows,
+      maxRows: approvalValidation.approval.max_rows,
+    });
+    if (selectedRows.length !== approvalValidation.approval.max_rows) {
+      return safeError(409, "LIMITED_APPLY_ROW_SELECTION_MISMATCH", "Limited apply row selection did not match approval.", {
+        dryRun: false,
+        actualApplyReady: false,
+        actualApplyBlockedReason: "LIMITED_APPLY_ROW_SELECTION_MISMATCH",
+      });
+    }
+
+    const writeService = await createImportService();
+    if (!writeService.status.canWrite || !(writeService.repository instanceof SupabaseImportRepository)) {
+      return safeError(403, "LIMITED_APPLY_WRITE_CLIENT_BLOCKED", "Supabase write client is not configured for limited apply.", {
+        dryRun: false,
+        actualApplyReady: false,
+        actualApplyBlockedReason: "LIMITED_APPLY_WRITE_CLIENT_BLOCKED",
+      });
+    }
+
+    const result = await writeService.repository.limitedInsertLedgerRows({
+      fileName: file.name,
+      partCode: selectedPartCode,
+      periodStart: syncScope.dateFrom,
+      periodEnd: syncScope.dateTo,
+      sourceFileHash,
+      previewChecksum,
+      operator,
+      selectedRows,
+      summary: {
+        stage: "G-6B",
+        totalRows: operationalSummary.totalRows,
+        normalRows: operationalSummary.normalRows,
+        excludedRows: preview.summary.excludedRows,
+        warningRows: preview.summary.warningRows,
+        errorRows: preview.summary.errorRows,
+        requestedRows: approvalValidation.approval.max_rows,
+        maxRows: approvalValidation.approval.max_rows,
+      },
+    });
+
+    const expectedIdentityHashes = new Set(selectedRows.map((row) => row.identityHash));
+    const readBackIdentityHashes = new Set(result.readBackRows.map((row) => row.identity_hash));
+    const readBackMatches =
+      result.insertedRows === approvalValidation.approval.max_rows &&
+      [...expectedIdentityHashes].every((hash) => readBackIdentityHashes.has(hash));
+
+    return NextResponse.json({
+      ok: true,
+      dryRun: false,
+      applyMode: "limited-apply",
+      stage: "G-6B",
+      actualApplyExecuted: true,
+      actualApplyReady: false,
+      importBatchId: result.importBatchId,
+      operator,
+      requestedRows: approvalValidation.approval.max_rows,
+      insertedRows: result.insertedRows,
+      updatedRows: result.updatedRows,
+      deletedRows: result.deletedRows,
+      normalizedTableWrite: result.normalizedTableWrite,
+      readBack: {
+        rowCount: result.readBackRows.length,
+        matchesRequestedRows: result.readBackRows.length === approvalValidation.approval.max_rows,
+        identityHashMatch: readBackMatches,
+        contentHashPresent: result.readBackRows.every((row) => Boolean(row.content_hash)),
+        selectedColumnsOnly: true,
+        selectStarUsed: false,
+      },
+      rollbackEvidence: {
+        importBatchId: result.importBatchId,
+        ledgerRowIds: result.readBackRows.map((row) => row.id),
+        identityHashes: result.readBackRows.map((row) => row.identity_hash),
+        rollbackExecuted: false,
+      },
+      report: {
+        import_batch_id: result.importBatchId,
+        applied_count: result.insertedRows,
+        rejected_count: 0,
+        operator,
+        created_at: result.committedAt,
+        status: "LIMITED_APPLY_COMMITTED",
+      },
+      side_effects: {
+        dbWrite: true,
+        storageWrite: false,
+        normalizedTableWrite: false,
+        actualApply: true,
+        productionPost: false,
+        migrationApply: false,
+        seedApply: false,
+      },
     });
   } catch {
     return safeError(500, "CONFIRM_DRY_RUN_FAILED", "Confirm dry-run failed safely.", { applyReady: false });
