@@ -50,8 +50,13 @@ export async function readExistingLedgerRowsForSync(scope: LedgerSyncScope): Pro
     readExecuted: true,
     readBlockedReason: null,
     rows: (data ?? []).map((row) => ({
+      naturalKey: `schema_identity_v1:${String(row.identity_hash)}`,
+      occurrenceIndexWithinNaturalKey: 1,
+      identityHash: String(row.identity_hash),
+      contentHash: String(row.content_hash),
       syncKey: String(row.identity_hash),
       syncContentHash: String(row.content_hash),
+      keyVersion: "schema_identity_v1",
       partCode: scope.partCode,
       ledgerDate: String(row.ledger_date ?? scope.dateTo),
       rowType: row.row_type as LedgerRowType,

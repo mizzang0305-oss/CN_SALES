@@ -36,6 +36,9 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(uploadCenterSource).toContain("syncDiff");
     expect(uploadCenterSource).toContain("insertCandidates");
     expect(uploadCenterSource).toContain("deleteCandidates");
+    expect(uploadCenterSource).toContain("incomingIdentityDuplicates");
+    expect(uploadCenterSource).toContain("incomingNaturalKeyGroups");
+    expect(uploadCenterSource).toContain("legacySchemaDuplicates");
     expect(uploadCenterSource).toContain("실제 DB 반영 준비중");
   });
 
@@ -77,6 +80,9 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).toContain("error_by_reason");
     expect(confirmRouteSource).toContain("createPreviewOnlyImportService");
     expect(confirmRouteSource).toContain("createPreviewChecksum");
+    expect(confirmRouteSource).toContain("createLedgerSyncRows");
+    expect(confirmRouteSource).toContain("legacySchemaIdentityDiagnostics");
+    expect(confirmRouteSource).toContain("natural_occurrence_v2");
     expect(confirmRouteSource).not.toContain("createImportService");
     expect(confirmRouteSource).not.toContain("confirmPreview");
     expect(confirmRouteSource).not.toContain("error.message");

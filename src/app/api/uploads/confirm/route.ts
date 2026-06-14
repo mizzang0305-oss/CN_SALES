@@ -4,8 +4,8 @@ import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-
 import { createPreviewChecksum, hashUploadFile, toOperationalPreviewSummary } from "@/lib/import/preview-checksum";
 import { isCommittablePreviewRow } from "@/lib/import/row-classification";
 import { readExistingLedgerRowsForSync } from "@/lib/import/sync-existing-reader";
-import { deriveLedgerSyncScope, planLedgerSyncDiff } from "@/lib/import/sync-diff";
-import { createLedgerIdentitySyncRows } from "@/lib/import/sync-key";
+import { deriveLedgerSyncScope, planLedgerSyncDiff, summarizeDuplicateSyncKeys } from "@/lib/import/sync-diff";
+import { createLedgerIdentitySyncRows, createLedgerSyncRows } from "@/lib/import/sync-key";
 
 export const runtime = "nodejs";
 
@@ -161,9 +161,11 @@ export async function POST(request: Request) {
       fallbackDateTo: getString(formData, "periodEnd") || "2026-06-30",
     });
     const existingRead = await readExistingLedgerRowsForSync(syncScope);
+    const incomingSyncRows = createLedgerSyncRows(committableRows);
+    const legacyIncomingSyncRows = createLedgerIdentitySyncRows(committableRows);
     const syncDiff = planLedgerSyncDiff({
       scope: syncScope,
-      incomingRows: createLedgerIdentitySyncRows(committableRows),
+      incomingRows: incomingSyncRows,
       existingRows: existingRead.rows,
       incomingSummary: {
         normalRows: operationalSummary.normalRows,
@@ -176,6 +178,7 @@ export async function POST(request: Request) {
         readBlockedReason: existingRead.readBlockedReason,
       },
     });
+    const legacySchemaIdentityDiagnostics = summarizeDuplicateSyncKeys(legacyIncomingSyncRows);
 
     return NextResponse.json({
       ok: true,
@@ -213,6 +216,15 @@ export async function POST(request: Request) {
         normalizedTableWrite: false,
         actualApply: false,
       },
+      syncKeyPolicy: {
+        version: "natural_occurrence_v2",
+        naturalKeyFields: ["partCode", "ledgerDate", "customerStableKey", "productStableKey", "documentNoOrBlank", "rowType"],
+        occurrenceIndexWithinNaturalKey: true,
+        amountInIdentityKey: false,
+        contentHashIncludesAmounts: true,
+        existingRowsUseStoredSchemaIdentity: true,
+      },
+      legacySchemaIdentityDiagnostics,
       syncDiff,
     });
   } catch {
