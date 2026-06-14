@@ -94,6 +94,32 @@ type DryRunReport = {
     account_count?: number;
     item_count?: number;
   };
+  syncDiff?: {
+    scope: { partCode: string; dateFrom: string; dateTo: string };
+    planReady?: boolean;
+    blockedReasons?: string[];
+    incoming: { normalRows: number; excludedRows: number; warningRows: number; errorRows: number };
+    existing: { scopedRows: number };
+    diff: {
+      insertCandidates: number;
+      updateCandidates: number;
+      deleteCandidates: number;
+      noChangeRows: number;
+      duplicateIncomingKeys: number;
+      duplicateExistingKeys: number;
+    };
+    safety: {
+      dbWriteExecuted: boolean;
+      deleteExecuted: boolean;
+      productionPostExecuted: boolean;
+    };
+    readOnlyEvidence?: {
+      readExecuted: boolean;
+      readBlockedReason: string | null;
+      selectedColumnsOnly: boolean;
+      selectStarUsed: boolean;
+    };
+  };
   error?: { code?: string; message?: string };
   blocked_reasons?: string[];
 };
@@ -457,6 +483,31 @@ export function UploadCenter() {
                   applyReady: {dryRunReport.applyReady ? "true" : "false"}
                   {dryRunReport.applyBlockedReason ? ` / ${dryRunReport.applyBlockedReason}` : ""}
                 </div>
+                {dryRunReport.syncDiff && (
+                  <div className="mt-3 rounded-md border border-slate-200 p-3">
+                    <div className="text-[16px] font-semibold">syncDiff</div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <ReportField label="planReady" value={dryRunReport.syncDiff.planReady ? "true" : "false"} />
+                      <ReportField label="scope_part" value={dryRunReport.syncDiff.scope.partCode} />
+                      <ReportField label="date_range" value={`${dryRunReport.syncDiff.scope.dateFrom} ~ ${dryRunReport.syncDiff.scope.dateTo}`} />
+                      <ReportField label="existing_scoped_rows" value={formatNumber(dryRunReport.syncDiff.existing.scopedRows)} />
+                      <ReportField label="insertCandidates" value={formatNumber(dryRunReport.syncDiff.diff.insertCandidates)} />
+                      <ReportField label="updateCandidates" value={formatNumber(dryRunReport.syncDiff.diff.updateCandidates)} />
+                      <ReportField label="deleteCandidates" value={formatNumber(dryRunReport.syncDiff.diff.deleteCandidates)} />
+                      <ReportField label="noChangeRows" value={formatNumber(dryRunReport.syncDiff.diff.noChangeRows)} />
+                      <ReportField label="duplicateIncomingKeys" value={formatNumber(dryRunReport.syncDiff.diff.duplicateIncomingKeys)} />
+                      <ReportField label="duplicateExistingKeys" value={formatNumber(dryRunReport.syncDiff.diff.duplicateExistingKeys)} />
+                      <ReportField label="db_read" value={dryRunReport.syncDiff.readOnlyEvidence?.readExecuted ? "true" : "false"} />
+                      <ReportField label="delete_executed" value={dryRunReport.syncDiff.safety.deleteExecuted ? "true" : "false"} />
+                      <ReportField label="db_write" value={dryRunReport.syncDiff.safety.dbWriteExecuted ? "true" : "false"} />
+                    </div>
+                    {dryRunReport.syncDiff.blockedReasons?.length ? (
+                      <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-[14px] leading-6 text-amber-900">
+                        {dryRunReport.syncDiff.blockedReasons.join(", ")}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </div>
             )}
           </div>
