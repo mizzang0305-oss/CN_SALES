@@ -50,6 +50,10 @@ type PreviewResponse = {
   blocked_reasons?: string[];
   mode?: string;
   operationalSummary: OperationalPreviewSummary;
+  sourceFileHash?: string;
+  previewChecksum?: string;
+  confirmCandidate?: boolean;
+  confirmBlockedReason?: string | null;
   apply?: { enabled: boolean; reason: string };
 };
 
@@ -58,13 +62,25 @@ type PreviewErrorResponse = {
   blocked_reasons?: string[];
 };
 
-type ApplyReport = {
-  status?: string;
-  import_batch_id?: string;
-  applied_count?: number;
-  rejected_count?: number;
-  operator?: string | null;
-  created_at?: string;
+type DryRunReport = {
+  ok?: boolean;
+  dryRun?: boolean;
+  applyReady?: boolean;
+  applyBlockedReason?: string | null;
+  report?: {
+    import_batch_id?: string;
+    expected_affected_rows?: number;
+    operator?: string | null;
+    created_at?: string;
+    status?: string;
+    total_rows?: number;
+    normal_rows?: number;
+    error_rows?: number;
+    amount_total?: number;
+    account_count?: number;
+    item_count?: number;
+  };
+  error?: { code?: string; message?: string };
   blocked_reasons?: string[];
 };
 
@@ -80,11 +96,11 @@ export function UploadCenter() {
     rollbackAcknowledged: false,
   });
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
-  const [applyReport, setApplyReport] = useState<ApplyReport | null>(null);
-  const [status, setStatus] = useState("미리보기 대기");
+  const [dryRunReport, setDryRunReport] = useState<DryRunReport | null>(null);
+  const [status, setStatus] = useState("preview 대기");
   const [errorMessage, setErrorMessage] = useState("");
   const [isPreviewing, setIsPreviewing] = useState(false);
-  const [isApplying, setIsApplying] = useState(false);
+  const [isDryRunning, setIsDryRunning] = useState(false);
 
   const filePartCode = useMemo(() => extractPartCodeFromText(file?.name ?? ""), [file]);
   const partMismatch = useMemo(() => getSelectedFilePartMismatch({ selectedPartCode: partCode, fileName: file?.name }), [file, partCode]);
@@ -94,12 +110,21 @@ export function UploadCenter() {
   }, [partMismatch, preview]);
   const confirmationReady = Object.values(confirmations).every(Boolean);
   const operatorReady = operator.trim().length > 0;
-  const previewReady = Boolean(preview?.ok && preview.summary.canCommit && preview.apply?.enabled && !preview.operationalSummary.partMismatch);
-  const applyDisabled = isApplying || !previewReady || !operatorReady || !confirmationReady;
+  const dryRunReady = Boolean(
+    file &&
+      preview?.ok &&
+      preview.confirmCandidate &&
+      preview.sourceFileHash &&
+      preview.previewChecksum &&
+      !preview.operationalSummary.partMismatch &&
+      operatorReady &&
+      confirmationReady,
+  );
+  const dryRunDisabled = isDryRunning || !dryRunReady;
 
-  function resetPreview(nextStatus = "미리보기 대기") {
+  function resetPreview(nextStatus = "preview 대기") {
     setPreview(null);
-    setApplyReport(null);
+    setDryRunReport(null);
     setErrorMessage("");
     setStatus(nextStatus);
     setConfirmations({
@@ -111,8 +136,8 @@ export function UploadCenter() {
 
   async function createPreview() {
     setIsPreviewing(true);
-    setStatus(partMismatch ? "파트 불일치 확인 필요" : "미리보기 생성 중");
-    setApplyReport(null);
+    setStatus(partMismatch ? "파트 불일치 확인 필요" : "preview 생성 중");
+    setDryRunReport(null);
     setErrorMessage("");
     setConfirmations({
       previewChecked: false,
@@ -150,49 +175,58 @@ export function UploadCenter() {
 
       setPreview(result);
       if (result.operationalSummary.partMismatch) {
-        setStatus("파트 불일치 - DB 반영 차단");
-      } else if (!result.summary.canCommit || !result.apply?.enabled) {
-        setStatus(`DB 반영 대기 불가: ${result.apply?.reason ?? "PREVIEW_BLOCKED"}`);
+        setStatus("파트 불일치 - dry-run/DB 반영 차단");
+      } else if (!file) {
+        setStatus("fixture preview 완료 - 실제 파일 dry-run은 파일 선택 필요");
+      } else if (!result.confirmCandidate) {
+        setStatus(`dry-run 후보 아님: ${result.confirmBlockedReason ?? "PREVIEW_BLOCKED"}`);
       } else {
-        setStatus("미리보기 완료 - 운영자 확인 필요");
+        setStatus("preview 완료 - 운영자 확인 후 dry-run 가능");
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "미리보기 생성 실패";
+      const message = error instanceof Error ? error.message : "preview 생성 실패";
       setPreview(null);
       setErrorMessage(message);
-      setStatus("미리보기 실패");
+      setStatus("preview 실패");
     } finally {
       setIsPreviewing(false);
     }
   }
 
-  async function confirmApply() {
-    if (!preview || applyDisabled) return;
-    setIsApplying(true);
-    setStatus("수동 DB 반영 요청 중");
+  async function runDryRunConfirm() {
+    if (!file || !preview || dryRunDisabled) return;
+    setIsDryRunning(true);
+    setStatus("confirm dry-run 실행 중");
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/uploads/confirm", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          previewId: preview.previewId,
-          operator: operator.trim(),
-          confirmations,
-        }),
-      });
-      const result = (await response.json()) as ApplyReport;
-      setApplyReport(result);
-      setStatus(result.status === "committed" ? "DB 반영 완료" : "DB 반영 차단");
-      if (!response.ok) {
-        setErrorMessage(result.blocked_reasons?.join(" ") || "DB 반영 요청이 거부되었습니다.");
+      const formData = new FormData();
+      formData.set("file", file);
+      formData.set("selectedPart", partCode);
+      formData.set("periodStart", periodStart);
+      formData.set("periodEnd", periodEnd);
+      formData.set("operator", operator.trim());
+      formData.set("ackPreviewReviewed", String(confirmations.previewChecked));
+      formData.set("ackPartMatched", String(confirmations.partMatchChecked));
+      formData.set("ackApplyRisk", String(confirmations.rollbackAcknowledged));
+      formData.set("sourceFileHash", preview.sourceFileHash ?? "");
+      formData.set("previewChecksum", preview.previewChecksum ?? "");
+      formData.set("dryRun", "true");
+
+      const response = await fetch("/api/uploads/confirm", { method: "POST", body: formData });
+      const result = (await response.json()) as DryRunReport;
+      setDryRunReport(result);
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error?.message ?? result.blocked_reasons?.join(" ") ?? "confirm dry-run blocked");
       }
-    } catch {
-      setStatus("DB 반영 실패");
-      setErrorMessage("DB 반영 요청이 실패했습니다.");
+
+      setStatus(result.applyReady ? "dry-run 완료 - 별도 승인 전 실제 반영 금지" : `dry-run 완료 - ${result.applyBlockedReason ?? "apply blocked"}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "confirm dry-run 실패";
+      setErrorMessage(message);
+      setStatus("confirm dry-run 차단");
     } finally {
-      setIsApplying(false);
+      setIsDryRunning(false);
     }
   }
 
@@ -204,14 +238,14 @@ export function UploadCenter() {
             <UploadCloud className="size-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold">엑셀 업로드</h2>
-            <p className="text-[15px] text-slate-500">운영자가 미리보기 확인 후 수동으로 DB 반영합니다.</p>
+            <h2 className="text-lg font-semibold">원장 업로드</h2>
+            <p className="text-[15px] text-slate-500">preview와 confirm dry-run을 거친 뒤, 별도 승인 전까지 실제 DB 반영은 비활성화됩니다.</p>
           </div>
         </div>
 
         <div className="mt-5 space-y-4">
           <label className="block text-[15px] font-semibold">
-            엑셀 파일
+            원장 파일
             <input
               type="file"
               accept=".xls,.xlsx,.json"
@@ -254,7 +288,7 @@ export function UploadCenter() {
           {partMismatch && (
             <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-[14px] leading-6 text-amber-900">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-              <div>{partMismatch.message} 파트가 맞지 않으면 DB 반영 버튼은 열리지 않습니다.</div>
+              <div>{partMismatch.message} 파트가 맞지 않으면 dry-run과 DB 반영 버튼은 열리지 않습니다.</div>
             </div>
           )}
 
@@ -280,7 +314,7 @@ export function UploadCenter() {
           </label>
 
           <div className="rounded-md bg-slate-50 p-3 text-[14px] leading-6 text-slate-600">
-            {file ? "선택한 파일로 preview를 생성합니다. DB 반영은 별도 확인 후에만 가능합니다." : "파일이 없으면 synthetic fixture로 preview 화면만 확인합니다."}
+            {file ? "선택한 파일로 preview를 생성합니다. confirm dry-run은 같은 파일을 다시 보내 서버에서 재파싱합니다." : "파일이 없으면 synthetic fixture로 preview 화면만 확인합니다. dry-run은 실제 파일 선택 후 가능합니다."}
           </div>
 
           <div className="flex gap-2">
@@ -293,7 +327,7 @@ export function UploadCenter() {
           </div>
 
           <div className="space-y-2 rounded-md border border-slate-200 p-3">
-            <div className="text-[15px] font-semibold">DB 반영 전 확인</div>
+            <div className="text-[15px] font-semibold">dry-run 전 운영자 확인</div>
             {(Object.keys(confirmationLabels) as Array<keyof typeof confirmationLabels>).map((key) => (
               <label key={key} className="flex min-h-11 items-center gap-2 text-[14px] text-slate-700">
                 <input
@@ -308,8 +342,11 @@ export function UploadCenter() {
             ))}
           </div>
 
-          <Button type="button" disabled={applyDisabled} onClick={confirmApply} className="h-11 w-full">
-            {isApplying ? "반영 요청 중" : "수동 DB 반영"}
+          <Button type="button" disabled={dryRunDisabled} onClick={runDryRunConfirm} className="h-11 w-full">
+            {isDryRunning ? "dry-run 실행 중" : "confirm dry-run 확인"}
+          </Button>
+          <Button type="button" disabled className="h-11 w-full" variant="outline">
+            실제 DB 반영 준비중
           </Button>
 
           <div className="text-[15px] font-semibold text-slate-700">상태: {status}</div>
@@ -332,7 +369,7 @@ export function UploadCenter() {
                 ["금액 합계", formatWon(preview.operationalSummary.amountTotal)],
                 ["거래처 수", formatNumber(preview.operationalSummary.customerCount)],
                 ["품목 수", formatNumber(preview.operationalSummary.productCount)],
-                ["반영 상태", preview.apply?.enabled ? "확인 필요" : preview.apply?.reason ?? "차단"],
+                ["dry-run 후보", preview.confirmCandidate ? "가능" : preview.confirmBlockedReason ?? "차단"],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-md border border-slate-200 p-3">
                   <div className="text-[15px] text-slate-500">{label}</div>
@@ -348,9 +385,9 @@ export function UploadCenter() {
                 <div>파일 파트: {preview.operationalSummary.filePartCode ? `${preview.operationalSummary.filePartCode}파트` : "감지 안 됨"}</div>
               </div>
               <div className="rounded-md border border-slate-200 p-3 text-[15px] leading-7">
-                <div className="font-semibold">세부 합계</div>
-                <div>매출 합계: {formatWon(preview.operationalSummary.salesTotal)}</div>
-                <div>회입 합계: {formatWon(preview.operationalSummary.receiptTotal)}</div>
+                <div className="font-semibold">confirm 계약</div>
+                <div>sourceFileHash: {shortHash(preview.sourceFileHash)}</div>
+                <div>previewChecksum: {shortHash(preview.previewChecksum)}</div>
               </div>
             </div>
 
@@ -373,22 +410,21 @@ export function UploadCenter() {
               )}
             </div>
 
-            {applyReport && (
+            {dryRunReport && (
               <div className="rounded-md border border-slate-200 p-3">
-                <h3 className="text-lg font-semibold">반영 결과 report</h3>
+                <h3 className="text-lg font-semibold">dry-run report</h3>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  <ReportField label="import_batch_id" value={applyReport.import_batch_id ?? "-"} />
-                  <ReportField label="applied_count" value={formatNumber(applyReport.applied_count ?? 0)} />
-                  <ReportField label="rejected_count" value={formatNumber(applyReport.rejected_count ?? 0)} />
-                  <ReportField label="operator" value={applyReport.operator ?? "-"} />
-                  <ReportField label="created_at" value={applyReport.created_at ?? "-"} />
-                  <ReportField label="status" value={applyReport.status ?? "-"} />
+                  <ReportField label="import_batch_id" value={dryRunReport.report?.import_batch_id ?? "-"} />
+                  <ReportField label="expected_affected_rows" value={formatNumber(dryRunReport.report?.expected_affected_rows ?? 0)} />
+                  <ReportField label="error_rows" value={formatNumber(dryRunReport.report?.error_rows ?? 0)} />
+                  <ReportField label="operator" value={dryRunReport.report?.operator ?? "-"} />
+                  <ReportField label="created_at" value={dryRunReport.report?.created_at ?? "-"} />
+                  <ReportField label="status" value={dryRunReport.report?.status ?? dryRunReport.error?.code ?? "-"} />
                 </div>
-                {applyReport.blocked_reasons?.length ? (
-                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-[14px] text-amber-900">
-                    {applyReport.blocked_reasons.join(" ")}
-                  </div>
-                ) : null}
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-[14px] text-slate-700">
+                  applyReady: {dryRunReport.applyReady ? "true" : "false"}
+                  {dryRunReport.applyBlockedReason ? ` / ${dryRunReport.applyBlockedReason}` : ""}
+                </div>
               </div>
             )}
           </div>
@@ -409,6 +445,11 @@ function ReportField({ label, value }: { label: string; value: string }) {
   );
 }
 
+function shortHash(value: string | undefined) {
+  if (!value) return "-";
+  return `${value.slice(0, 18)}...${value.slice(-8)}`;
+}
+
 function getPreviewErrorMessage(result: PreviewErrorResponse, statusCode: number) {
   if (typeof result.error === "object") {
     const code = result.error.code ?? "INVALID_UPLOAD_FILE";
@@ -417,5 +458,5 @@ function getPreviewErrorMessage(result: PreviewErrorResponse, statusCode: number
     return `${code} - ${message}`;
   }
   if (typeof result.error === "string" && result.error) return result.error;
-  return result.blocked_reasons?.join(" ") || "미리보기 생성 실패";
+  return result.blocked_reasons?.join(" ") || "preview 생성 실패";
 }

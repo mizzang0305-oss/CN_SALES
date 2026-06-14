@@ -1,47 +1,174 @@
 import { NextResponse } from "next/server";
-import { createImportService } from "@/lib/import/service-factory";
+import { createPreviewOnlyImportService } from "@/lib/import/service-factory";
+import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-data";
+import { createPreviewChecksum, hashUploadFile, toOperationalPreviewSummary } from "@/lib/import/preview-checksum";
+
+export const runtime = "nodejs";
+
+const applyNotApprovedMessage = "DB apply is not approved in this stage. Only confirm dry-run is available.";
+const invalidUploadMessage = "The uploaded file could not be read. Check the file format and try again.";
+
+function safeError(status: number, code: string, message: string, extra: Record<string, unknown> = {}) {
+  return NextResponse.json(
+    {
+      ok: false,
+      dryRun: true,
+      error: { code, message },
+      blocked_reasons: [code],
+      ...extra,
+    },
+    { status },
+  );
+}
+
+function applyNotApprovedResponse() {
+  return safeError(403, "APPLY_NOT_APPROVED", applyNotApprovedMessage, { applyReady: false });
+}
+
+function isSupportedUploadFile(fileName: string) {
+  return /\.(xls|xlsx|json)$/i.test(fileName);
+}
+
+function getString(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getBoolean(formData: FormData, key: string) {
+  const value = formData.get(key);
+  if (typeof value !== "string") return false;
+  return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function missingAcknowledgements(formData: FormData) {
+  const missing: string[] = [];
+  if (!getBoolean(formData, "ackPreviewReviewed")) missing.push("ackPreviewReviewed");
+  if (!getBoolean(formData, "ackPartMatched")) missing.push("ackPartMatched");
+  if (!getBoolean(formData, "ackApplyRisk")) missing.push("ackApplyRisk");
+  return missing;
+}
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
-      previewId?: string;
-      uploadId?: string;
-      operator?: string;
-      confirmations?: {
-        previewChecked?: boolean;
-        partMatchChecked?: boolean;
-        rollbackAcknowledged?: boolean;
-      };
-    };
-    const previewId = body.previewId ?? body.uploadId;
-
-    if (!previewId) {
-      return NextResponse.json({ status: "rejected", blocked_reasons: ["previewId is required."] }, { status: 400 });
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.includes("multipart/form-data")) {
+      return applyNotApprovedResponse();
     }
 
-    const { status, service } = await createImportService();
-    const result = await service.confirm(previewId, {
-      operator: body.operator,
-      confirmations: body.confirmations,
+    const formData = await request.formData();
+    if (!getBoolean(formData, "dryRun")) {
+      return applyNotApprovedResponse();
+    }
+
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      return safeError(400, "UPLOAD_FILE_REQUIRED", "Upload file is required for confirm dry-run.", { applyReady: false });
+    }
+
+    if (!isSupportedUploadFile(file.name)) {
+      return safeError(415, "INVALID_UPLOAD_FILE", invalidUploadMessage, { applyReady: false });
+    }
+
+    const selectedPartCode = normalizePartCode(getString(formData, "selectedPart") || getString(formData, "partCode"));
+    if (!selectedPartCode) {
+      return safeError(400, "PART_REQUIRED", "Selected part is required for confirm dry-run.", { applyReady: false });
+    }
+
+    const operator = getString(formData, "operator");
+    if (!operator) {
+      return safeError(400, "OPERATOR_REQUIRED", "Operator is required for confirm dry-run.", { applyReady: false });
+    }
+
+    const missing = missingAcknowledgements(formData);
+    if (missing.length > 0) {
+      return safeError(400, "OPERATOR_CONFIRMATION_REQUIRED", "All operator acknowledgements are required.", {
+        applyReady: false,
+        missing,
+      });
+    }
+
+    const expectedSourceFileHash = getString(formData, "sourceFileHash");
+    const expectedPreviewChecksum = getString(formData, "previewChecksum");
+    if (!expectedSourceFileHash || !expectedPreviewChecksum) {
+      return safeError(400, "PREVIEW_CONTRACT_REQUIRED", "Preview hash and checksum are required.", { applyReady: false });
+    }
+
+    const { sourceFileHash } = await hashUploadFile(file);
+    if (sourceFileHash !== expectedSourceFileHash) {
+      return safeError(409, "SOURCE_FILE_HASH_MISMATCH", "Uploaded file does not match the previewed file.", { applyReady: false });
+    }
+
+    const filePartCode = extractPartCodeFromText(file.name);
+    if (filePartCode && filePartCode !== selectedPartCode) {
+      return safeError(409, "PART_FILE_MISMATCH", "Selected part does not match the file name part.", {
+        applyReady: false,
+        selectedPartCode,
+        filePartCode,
+      });
+    }
+
+    const { status, service } = await createPreviewOnlyImportService();
+    const preview = await service.preview({
+      file,
+      partCode: selectedPartCode,
+      periodStart: getString(formData, "periodStart") || "2026-06-01",
+      periodEnd: getString(formData, "periodEnd") || "2026-06-30",
     });
-    const report = {
-      ...result,
-      import_batch_id: result.importBatchId ?? result.previewId,
-      applied_count: result.appliedCount ?? result.inserted + result.updated,
-      rejected_count: result.rejectedCount ?? result.errors + result.missingCandidates,
-      operator: result.operator ?? body.operator ?? null,
-      created_at: result.createdAt ?? new Date().toISOString(),
-      mode: status.mode,
-      env_blocked_reasons: status.blockedReasons,
-    };
-    return NextResponse.json(report, { status: result.status === "rejected" ? 400 : 200 });
-  } catch {
-    return NextResponse.json(
-      {
-        status: "rejected",
-        blocked_reasons: ["CONFIRM_FAILED"],
+    const operationalSummary = toOperationalPreviewSummary(preview, status.blockedReasons);
+    const previewChecksum = createPreviewChecksum({ sourceFileHash, preview, operationalSummary });
+
+    if (previewChecksum !== expectedPreviewChecksum) {
+      return safeError(409, "PREVIEW_CHECKSUM_MISMATCH", "Server re-parse summary does not match the preview checksum.", {
+        applyReady: false,
+      });
+    }
+
+    if (operationalSummary.partMismatch) {
+      return safeError(409, "PART_FILE_MISMATCH", "Selected part does not match the file name part.", {
+        applyReady: false,
+        selectedPartCode: operationalSummary.selectedPartCode,
+        filePartCode: operationalSummary.filePartCode,
+      });
+    }
+
+    const dataBlockedReasons = preview.blockedReasons.filter((reason) => reason !== "PREVIEW_ONLY");
+    const hasErrorRows = preview.summary.errorRows > 0;
+    const applyReady = !hasErrorRows && dataBlockedReasons.length === 0;
+    const applyBlockedReason = hasErrorRows
+      ? "HAS_ERROR_ROWS"
+      : dataBlockedReasons[0] ?? (applyReady ? null : "PREVIEW_NOT_COMMITTABLE");
+    const statusLabel = applyReady ? "DRY_RUN_READY" : "DRY_RUN_BLOCKED";
+
+    return NextResponse.json({
+      ok: true,
+      dryRun: true,
+      applyReady,
+      applyBlockedReason,
+      report: {
+        import_batch_id: `dryrun_${previewChecksum.replace(/^sha256:/, "").slice(0, 16)}`,
+        operator,
+        selected_part: selectedPartCode,
+        source_file_hash: sourceFileHash,
+        preview_checksum: previewChecksum,
+        total_rows: operationalSummary.totalRows,
+        normal_rows: operationalSummary.normalRows,
+        error_rows: preview.summary.errorRows,
+        excluded_or_error_rows: operationalSummary.excludedOrErrorRows,
+        amount_total: operationalSummary.amountTotal,
+        account_count: operationalSummary.customerCount,
+        item_count: operationalSummary.productCount,
+        expected_affected_rows: applyReady ? preview.summary.insertRows + preview.summary.updateRows : 0,
+        created_at: new Date().toISOString(),
+        status: hasErrorRows ? "DRY_RUN_BLOCKED_HAS_ERRORS" : statusLabel,
       },
-      { status: 500 },
-    );
+      side_effects: {
+        dbWrite: false,
+        storageWrite: false,
+        normalizedTableWrite: false,
+        actualApply: false,
+      },
+    });
+  } catch {
+    return safeError(500, "CONFIRM_DRY_RUN_FAILED", "Confirm dry-run failed safely.", { applyReady: false });
   }
 }

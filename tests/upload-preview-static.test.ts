@@ -31,7 +31,9 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(uploadCenterSource).toContain("previewChecked");
     expect(uploadCenterSource).toContain("partMatchChecked");
     expect(uploadCenterSource).toContain("rollbackAcknowledged");
-    expect(uploadCenterSource).toContain("applyDisabled");
+    expect(uploadCenterSource).toContain("dryRunDisabled");
+    expect(uploadCenterSource).toContain("runDryRunConfirm");
+    expect(uploadCenterSource).toContain("실제 DB 반영 준비중");
   });
 
   it("marks the preview route as node runtime and logs only high-level preview side effects", () => {
@@ -55,13 +57,17 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(previewRouteSource).not.toMatch(/insert\(|upsert\(|update\(|delete\(|rpc\(/);
   });
 
-  it("requires operator confirmations on the confirm route before DB apply", () => {
+  it("keeps the confirm route limited to manual dry-run re-parse", () => {
     expect(confirmRouteSource).toContain("operator");
-    expect(confirmRouteSource).toContain("confirmations");
-    expect(confirmRouteSource).toContain("previewChecked");
-    expect(confirmRouteSource).toContain("partMatchChecked");
-    expect(confirmRouteSource).toContain("rollbackAcknowledged");
+    expect(confirmRouteSource).toContain("ackPreviewReviewed");
+    expect(confirmRouteSource).toContain("ackPartMatched");
+    expect(confirmRouteSource).toContain("ackApplyRisk");
     expect(confirmRouteSource).toContain("import_batch_id");
+    expect(confirmRouteSource).toContain("APPLY_NOT_APPROVED");
+    expect(confirmRouteSource).toContain("createPreviewOnlyImportService");
+    expect(confirmRouteSource).toContain("createPreviewChecksum");
+    expect(confirmRouteSource).not.toContain("createImportService");
+    expect(confirmRouteSource).not.toContain("confirmPreview");
     expect(confirmRouteSource).not.toContain("error.message");
   });
 
