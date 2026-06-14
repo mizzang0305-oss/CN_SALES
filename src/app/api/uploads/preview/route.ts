@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
-import { createPreviewImportService, parseRowsFromJson } from "@/lib/import/service-factory";
-import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-data";
+import { createOperatorPreviewImportService, createPreviewImportService, parseRowsFromJson } from "@/lib/import/service-factory";
+import { extractPartCodeFromText, getSelectedFilePartMismatch, normalizePartCode } from "@/lib/import/master-data";
 import type { ImportPreviewRecord } from "@/lib/import/types";
 
 export const runtime = "nodejs";
 const invalidUploadMessage = "업로드 파일을 읽을 수 없습니다. 파일 형식과 양식을 확인해 주세요.";
 type PreviewInputRow = Record<string, string | number | null>;
+type PreviewServiceStatus = {
+  mode: string;
+  canWrite?: boolean;
+  blockedReasons: string[];
+};
 
 function logPreviewEvent(event: string, details: Record<string, unknown>) {
   console.info(`[uploads.preview] ${event}`, details);
@@ -28,7 +33,7 @@ function isSupportedPreviewFile(fileName: string) {
   return /\.(xls|xlsx|json)$/i.test(fileName);
 }
 
-function toSafePreviewResponse(preview: ImportPreviewRecord, status: { mode: string; blockedReasons: string[] }) {
+function toSafePreviewResponse(preview: ImportPreviewRecord, status: PreviewServiceStatus) {
   const rows = preview.rows.map((row) => ({
     rowKey: `${row.rowIndex}:${row.rowType}:${row.ledgerDate}:${row.customerCode ?? ""}:${row.customerName ?? ""}:${row.productName ?? ""}`,
     rowIndex: row.rowIndex,
@@ -48,6 +53,9 @@ function toSafePreviewResponse(preview: ImportPreviewRecord, status: { mode: str
     action: row.action,
   }));
 
+  const operationalSummary = toOperationalPreviewSummary(preview, status.blockedReasons);
+  const applyReason = getApplyDisabledReason(preview, status, operationalSummary.partMismatch);
+
   return {
     ok: true,
     previewId: preview.previewId,
@@ -58,13 +66,56 @@ function toSafePreviewResponse(preview: ImportPreviewRecord, status: { mode: str
     sampleRows: rows.slice(0, 20),
     blockedReasons: preview.blockedReasons,
     rowTypeCounts: preview.rowTypeCounts,
+    operationalSummary,
     mode: status.mode,
     blocked_reasons: status.blockedReasons,
     apply: {
-      enabled: false,
-      reason: "PREVIEW_ONLY",
+      enabled: !applyReason,
+      reason: applyReason ?? "OPERATOR_CONFIRMATION_REQUIRED",
     },
   };
+}
+
+function toOperationalPreviewSummary(preview: ImportPreviewRecord, envBlockedReasons: string[]) {
+  const customerNames = new Set(preview.rows.map((row) => row.customerName?.trim()).filter(Boolean));
+  const productNames = new Set(preview.rows.map((row) => row.productName?.trim()).filter(Boolean));
+  const partMismatch = getSelectedFilePartMismatch({
+    selectedPartCode: preview.summary.partCode,
+    fileName: preview.summary.fileName,
+  });
+  const warnings = uniqueStrings([
+    ...preview.blockedReasons,
+    ...envBlockedReasons,
+    ...(partMismatch ? [partMismatch.code] : []),
+    ...(preview.summary.errorRows > 0 ? ["PREVIEW_HAS_ERROR_ROWS"] : []),
+    ...(preview.summary.skippedRows > 0 ? ["DUPLICATE_OR_SKIPPED_ROWS_PRESENT"] : []),
+  ]);
+
+  return {
+    totalRows: preview.summary.totalRows,
+    normalRows: Math.max(preview.summary.parsableRows - preview.summary.errorRows, 0),
+    excludedOrErrorRows: preview.summary.skippedRows + preview.summary.errorRows,
+    partMismatch: Boolean(partMismatch),
+    selectedPartCode: preview.summary.partCode,
+    filePartCode: partMismatch?.filePartCode ?? extractPartCodeFromText(preview.summary.fileName),
+    amountTotal: preview.summary.salesTotal + preview.summary.receiptTotal,
+    salesTotal: preview.summary.salesTotal,
+    receiptTotal: preview.summary.receiptTotal,
+    customerCount: customerNames.size,
+    productCount: productNames.size,
+    warnings,
+  };
+}
+
+function getApplyDisabledReason(preview: ImportPreviewRecord, status: PreviewServiceStatus, partMismatch: boolean) {
+  if (partMismatch) return "PART_FILE_MISMATCH";
+  if (!status.canWrite) return "PREVIEW_ONLY";
+  if (!preview.summary.canCommit) return "PREVIEW_NOT_COMMITTABLE";
+  return null;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 export async function POST(request: Request) {
@@ -85,7 +136,7 @@ export async function POST(request: Request) {
 
       const selectedPartCode = normalizePartCode(String(formData.get("partCode") ?? formData.get("selectedPart") ?? "1"));
       const filePartCode = extractPartCodeFromText(file.name);
-      const { status, service } = await createPreviewImportService();
+      const { status, service } = await createOperatorPreviewImportService();
       logPreviewEvent("start", {
         requestMode: "file",
         serviceMode: status.mode,
@@ -160,6 +211,6 @@ export async function POST(request: Request) {
       normalizedTableWrite: false,
       code: "INVALID_UPLOAD_FILE",
     });
-    return invalidUploadResponse(error instanceof SyntaxError ? 400 : 422);
+    return invalidUploadResponse(error instanceof SyntaxError ? 400 : 415);
   }
 }

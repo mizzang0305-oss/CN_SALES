@@ -42,7 +42,7 @@ export class SupabaseImportRepository implements ImportRepository {
         summary_json: input.summary,
         created_by: context.profileId,
       })
-      .select("id")
+      .select("id, created_at")
       .single();
     if (uploadError) throw new Error(`Create upload failed: ${uploadError.message}`);
 
@@ -69,6 +69,7 @@ export class SupabaseImportRepository implements ImportRepository {
       uploadId: upload.id,
       uploadRecordId: upload.id,
       storagePath: input.storagePath,
+      createdAt: upload.created_at ?? new Date().toISOString(),
       summary: input.summary,
       rows: input.rows,
       blockedReasons: input.blockedReasons,
@@ -94,7 +95,7 @@ export class SupabaseImportRepository implements ImportRepository {
   async getPreview(previewId: string): Promise<ImportPreviewRecord | null> {
     const { data, error } = await this.db()
       .from("upload_preview_results")
-      .select("id, upload_id, summary_json, row_results_json, ledger_uploads(file_name, storage_path)")
+      .select("id, upload_id, summary_json, row_results_json, ledger_uploads(file_name, storage_path, created_at)")
       .eq("id", previewId)
       .single();
     if (error) return null;
@@ -112,6 +113,7 @@ export class SupabaseImportRepository implements ImportRepository {
       uploadId: data.upload_id,
       uploadRecordId: data.upload_id,
       storagePath: upload?.storage_path ?? "",
+      createdAt: upload?.created_at ?? "",
       summary: summaryJson.summary,
       rows: data.row_results_json as ImportPreviewRecord["rows"],
       blockedReasons: summaryJson.blocked_reasons ?? [],
@@ -221,11 +223,17 @@ export class SupabaseImportRepository implements ImportRepository {
 
   async getDashboardTotals(): Promise<DashboardTotals> {
     const context = await this.contextPromise;
-    const [{ data: sales }, { data: receipts }, { data: ar }, { data: parts }] = await Promise.all([
+    const [{ data: sales }, { data: receipts }, { data: ar }, { data: parts }, { data: uploads }] = await Promise.all([
       this.db().from("sales_transactions").select("part_id, sales_amount").eq("company_id", context.companyId),
       this.db().from("receipt_transactions").select("part_id, total_receipt_amount").eq("company_id", context.companyId),
       this.db().from("ar_snapshots").select("part_id, ar_balance").eq("company_id", context.companyId),
       this.db().from("sales_parts").select("id, part_code, part_name").eq("company_id", context.companyId),
+      this.db()
+        .from("ledger_uploads")
+        .select("id, file_name, status, created_at, committed_at, summary_json, part_id")
+        .eq("company_id", context.companyId)
+        .order("created_at", { ascending: false })
+        .limit(10),
     ]);
     const salesAmount = (sales ?? []).reduce((sum, row) => sum + Number(row.sales_amount), 0);
     const receiptAmount = (receipts ?? []).reduce((sum, row) => sum + Number(row.total_receipt_amount), 0);
@@ -238,6 +246,22 @@ export class SupabaseImportRepository implements ImportRepository {
       arBalance: (ar ?? []).filter((row) => row.part_id === part.id).reduce((sum, row) => sum + Number(row.ar_balance), 0),
       targetAmount: 0,
     }));
+    const partById = new Map((parts ?? []).map((part) => [part.id, part]));
+    const recentUploads: DashboardTotals["recentUploads"] = (uploads ?? []).map((upload) => {
+      const summary = upload.summary_json as Partial<ImportPreviewRecord["summary"]> | null;
+      const part = partById.get(upload.part_id);
+
+      return {
+        importBatchId: upload.id,
+        fileName: upload.file_name,
+        partCode: part?.part_code ?? String(summary?.partCode ?? ""),
+        status: upload.status,
+        createdAt: upload.committed_at ?? upload.created_at ?? "",
+        appliedCount: Number(summary?.insertRows ?? 0) + Number(summary?.updateRows ?? 0),
+        rejectedCount: Number(summary?.errorRows ?? 0),
+        operator: null,
+      };
+    });
 
     return {
       salesAmount,
@@ -247,6 +271,7 @@ export class SupabaseImportRepository implements ImportRepository {
       targetAmount: 0,
       targetRate: 0,
       parts: partRows,
+      recentUploads,
       mode: "supabase",
       blockedReasons: [],
     };

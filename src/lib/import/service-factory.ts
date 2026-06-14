@@ -27,11 +27,13 @@ class PreviewOnlyStorageAdapter implements UploadStorageAdapter {
 
 class PreviewOnlyImportRepository implements ImportRepository {
   async createPreview(input: Parameters<ImportRepository["createPreview"]>[0]): Promise<ImportPreviewRecord> {
+    const createdAt = new Date().toISOString();
     return {
       previewId: crypto.randomUUID(),
       uploadId: input.summary.fileName,
       uploadRecordId: crypto.randomUUID(),
       storagePath: input.storagePath,
+      createdAt,
       summary: input.summary,
       rows: input.rows,
       blockedReasons: input.blockedReasons,
@@ -71,6 +73,7 @@ class PreviewOnlyImportRepository implements ImportRepository {
       targetAmount: 0,
       targetRate: 0,
       parts: [],
+      recentUploads: [],
       mode: "fixture",
       blockedReasons: [previewOnlyReason],
     };
@@ -153,6 +156,12 @@ export async function createPreviewImportService(parseRows = parseWithPythonWork
     }),
     repository,
   };
+}
+
+export async function createOperatorPreviewImportService(parseRows = parseWithPythonWorker) {
+  const status = getRuntimeEnvStatus();
+  if (!status.canWrite) return createPreviewImportService(parseRows);
+  return createImportService(parseRows);
 }
 
 export async function createDashboardRepository(): Promise<{ status: ReturnType<typeof getRuntimeEnvStatus>; repository: ImportRepository | null }> {

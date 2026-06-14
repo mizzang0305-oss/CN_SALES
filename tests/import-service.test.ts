@@ -25,6 +25,15 @@ function createService() {
   return { repository, service };
 }
 
+const operatorApproval = {
+  operator: "Test Operator",
+  confirmations: {
+    previewChecked: true,
+    partMatchChecked: true,
+    rollbackAcknowledged: true,
+  },
+};
+
 describe("Phase 2 Supabase-style import flow", () => {
   it("preview stores preview results but does not create normalized rows", async () => {
     const { repository, service } = createService();
@@ -51,8 +60,8 @@ describe("Phase 2 Supabase-style import flow", () => {
       periodEnd: "2026-06-30",
     });
 
-    const first = await service.confirm(preview.previewId);
-    const second = await service.confirm(preview.previewId);
+    const first = await service.confirm(preview.previewId, operatorApproval);
+    const second = await service.confirm(preview.previewId, operatorApproval);
 
     expect(first.inserted).toBe(3);
     expect(second.inserted).toBe(0);
@@ -80,7 +89,7 @@ describe("Phase 2 Supabase-style import flow", () => {
       periodStart: "2026-06-01",
       periodEnd: "2026-06-30",
     });
-    await service.confirm(firstPreview.previewId);
+    await service.confirm(firstPreview.previewId, operatorApproval);
 
     rows = [{ ...baseRows[0], 매출액: 1200, 외상잔액: 3300 }, baseRows[1], baseRows[2]];
     const updatePreview = await service.preview({
@@ -89,7 +98,7 @@ describe("Phase 2 Supabase-style import flow", () => {
       periodStart: "2026-06-01",
       periodEnd: "2026-06-30",
     });
-    const updated = await service.confirm(updatePreview.previewId);
+    const updated = await service.confirm(updatePreview.previewId, operatorApproval);
 
     expect(updatePreview.summary.updateRows).toBe(1);
     expect(updated.updated).toBe(1);
@@ -113,7 +122,7 @@ describe("Phase 2 Supabase-style import flow", () => {
       periodStart: "2026-06-01",
       periodEnd: "2026-06-30",
     });
-    await service.confirm(preview.previewId);
+    await service.confirm(preview.previewId, operatorApproval);
 
     expect(preview.summary.partCode).toBe("4");
     expect(preview.blockedReasons).toEqual([]);
@@ -134,7 +143,7 @@ describe("Phase 2 Supabase-style import flow", () => {
       periodStart: "2026-06-01",
       periodEnd: "2026-06-30",
     });
-    const blockedConfirm = await blockedService.confirm(blockedPreview.previewId);
+    const blockedConfirm = await blockedService.confirm(blockedPreview.previewId, operatorApproval);
 
     expect(blockedPreview.blockedReasons).toContain("PART_REQUIRED");
     expect(blockedPreview.summary.canCommit).toBe(false);
@@ -172,8 +181,8 @@ describe("Phase 2 Supabase-style import flow", () => {
       periodStart: "2026-06-01",
       periodEnd: "2026-06-30",
     });
-    await service.confirm(preview.previewId);
-    await service.confirm(preview.previewId);
+    await service.confirm(preview.previewId, operatorApproval);
+    await service.confirm(preview.previewId, operatorApproval);
 
     expect(repository.salesParts).toMatchObject([{ partCode: "A", partName: "A파트" }]);
     expect(repository.customers).toMatchObject([
@@ -197,5 +206,22 @@ describe("Phase 2 Supabase-style import flow", () => {
         usageStatus: "new",
       },
     ]);
+  });
+
+  it("requires operator approval before confirm can write normalized data", async () => {
+    const { repository, service } = createService();
+    const preview = await service.preview({
+      file: new File(["fixture"], "ledger.xlsx"),
+      partCode: "A",
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+    });
+
+    const result = await service.confirm(preview.previewId);
+
+    expect(result.status).toBe("rejected");
+    expect(result.blockedReasons).toContain("OPERATOR_REQUIRED");
+    expect(repository.ledgerRows).toHaveLength(0);
+    expect(repository.normalized.salesTransactions).toHaveLength(0);
   });
 });

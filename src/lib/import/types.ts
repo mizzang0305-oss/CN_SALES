@@ -4,6 +4,7 @@ export interface ImportPreviewRecord extends UploadPreviewResult {
   previewId: string;
   uploadRecordId: string;
   storagePath: string;
+  createdAt?: string;
   blockedReasons: string[];
   rowTypeCounts: Record<string, number>;
   sampleRows: Array<ParsedLedgerRow & { action: string }>;
@@ -17,6 +18,11 @@ export interface ConfirmResult {
   skipped: number;
   errors: number;
   missingCandidates: number;
+  importBatchId?: string;
+  appliedCount?: number;
+  rejectedCount?: number;
+  operator?: string | null;
+  createdAt?: string;
   normalized: {
     salesTransactions: number;
     receiptTransactions: number;
@@ -39,6 +45,16 @@ export interface DashboardTotals {
     receiptAmount: number;
     arBalance: number;
     targetAmount: number;
+  }>;
+  recentUploads: Array<{
+    importBatchId: string;
+    fileName: string;
+    partCode: string;
+    status: string;
+    createdAt: string;
+    appliedCount: number;
+    rejectedCount: number;
+    operator: string | null;
   }>;
   mode: "fixture" | "supabase";
   blockedReasons: string[];

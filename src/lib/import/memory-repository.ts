@@ -51,6 +51,7 @@ type MemoryCustomerProductUsage = {
 
 export class MemoryImportRepository implements ImportRepository {
   previewResults = new Map<string, ImportPreviewRecord>();
+  recentUploads: DashboardTotals["recentUploads"] = [];
   ledgerRows: StoredLedgerRow[] = [];
   ledgerRowVersions: Array<{
     ledgerRowId: string;
@@ -74,11 +75,13 @@ export class MemoryImportRepository implements ImportRepository {
 
   async createPreview(input: Parameters<ImportRepository["createPreview"]>[0]): Promise<ImportPreviewRecord> {
     const previewId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
     const record: ImportPreviewRecord = {
       previewId,
       uploadId: input.summary.fileName,
       uploadRecordId: crypto.randomUUID(),
       storagePath: input.storagePath,
+      createdAt,
       summary: input.summary,
       rows: input.rows,
       blockedReasons: input.blockedReasons,
@@ -86,6 +89,17 @@ export class MemoryImportRepository implements ImportRepository {
       sampleRows: input.sampleRows,
     };
     this.previewResults.set(previewId, record);
+    this.recentUploads.unshift({
+      importBatchId: record.uploadRecordId,
+      fileName: input.summary.fileName,
+      partCode: input.summary.partCode,
+      status: "preview",
+      createdAt,
+      appliedCount: 0,
+      rejectedCount: input.summary.errorRows,
+      operator: null,
+    });
+    this.recentUploads = this.recentUploads.slice(0, 10);
     return record;
   }
 
@@ -140,6 +154,11 @@ export class MemoryImportRepository implements ImportRepository {
 
     this.replaceNormalizedRows(changedRows);
     this.rebuildMasterData();
+    this.markUploadCommitted({
+      importBatchId: preview.uploadRecordId,
+      appliedCount: inserted + updated,
+      rejectedCount: 0,
+    });
 
     return {
       status: "committed",
@@ -185,7 +204,16 @@ export class MemoryImportRepository implements ImportRepository {
       targetAmount,
       targetRate: 0,
       parts,
+      recentUploads: this.recentUploads,
     };
+  }
+
+  private markUploadCommitted(input: { importBatchId: string; appliedCount: number; rejectedCount: number }) {
+    const existing = this.recentUploads.find((upload) => upload.importBatchId === input.importBatchId);
+    if (!existing) return;
+    existing.status = "committed";
+    existing.appliedCount = input.appliedCount;
+    existing.rejectedCount = input.rejectedCount;
   }
 
   private replaceNormalizedRows(changedRows: StoredLedgerRow[]) {

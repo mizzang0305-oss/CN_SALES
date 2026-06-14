@@ -9,7 +9,7 @@ export function DashboardView({ data = { ...getDashboardSummary(), mode: "fixtur
   const cards = [
     { label: "총 매출", value: formatWon(data.salesAmount) },
     { label: "총 회입", value: formatWon(data.receiptAmount) },
-    { label: "회입/매출", value: formatPercent(data.receiptRate) },
+    { label: "회입률", value: formatPercent(data.receiptRate) },
     { label: "외상잔액", value: formatWon(data.arBalance) },
     { label: "목표 대비", value: formatPercent(data.targetRate) },
   ];
@@ -18,10 +18,11 @@ export function DashboardView({ data = { ...getDashboardSummary(), mode: "fixtur
     <div className="space-y-5">
       {data.mode === "fixture" && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-[15px] leading-6 text-amber-900">
-          fixture mode: Supabase DB 조회/쓰기 대신 샘플 데이터가 표시됩니다.
+          fixture mode: Supabase DB 조회가 막혀 샘플 데이터가 표시됩니다.
           {data.blockedReasons.length > 0 && <div className="mt-1">{data.blockedReasons.join(" ")}</div>}
         </div>
       )}
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {cards.map((card) => (
           <div key={card.label} className="rounded-lg border border-slate-200 bg-white p-4">
@@ -48,6 +49,50 @@ export function DashboardView({ data = { ...getDashboardSummary(), mode: "fixtur
       </section>
 
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-4 py-3">
+          <h2 className="text-lg font-semibold">최근 업로드/반영 이력</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] border-collapse text-[15px]">
+            <thead className="bg-slate-900 text-white">
+              <tr>
+                <th className="px-4 py-3 text-left font-semibold">import_batch_id</th>
+                <th className="px-4 py-3 text-left font-semibold">파일</th>
+                <th className="px-4 py-3 text-left font-semibold">파트</th>
+                <th className="px-4 py-3 text-left font-semibold">상태</th>
+                <th className="px-4 py-3 text-right font-semibold">반영</th>
+                <th className="px-4 py-3 text-right font-semibold">제외/오류</th>
+                <th className="px-4 py-3 text-left font-semibold">operator</th>
+                <th className="px-4 py-3 text-left font-semibold">created_at</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.recentUploads.length ? (
+                data.recentUploads.map((upload) => (
+                  <tr key={upload.importBatchId} className="border-t border-slate-200">
+                    <td className="max-w-[180px] truncate px-4 py-3 font-mono text-[13px]">{upload.importBatchId}</td>
+                    <td className="max-w-[220px] truncate px-4 py-3">{upload.fileName}</td>
+                    <td className="px-4 py-3">{upload.partCode}파트</td>
+                    <td className="px-4 py-3">{upload.status}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{upload.appliedCount.toLocaleString("ko-KR")}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{upload.rejectedCount.toLocaleString("ko-KR")}</td>
+                    <td className="px-4 py-3">{upload.operator ?? "-"}</td>
+                    <td className="px-4 py-3">{upload.createdAt || "-"}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr className="border-t border-slate-200">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                    아직 업로드/반영 이력이 없습니다.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         <table className="w-full border-collapse text-[15px]">
           <thead className="bg-slate-900 text-white">
             <tr>
@@ -65,7 +110,9 @@ export function DashboardView({ data = { ...getDashboardSummary(), mode: "fixtur
                 <td className="px-4 py-3 text-right tabular-nums">{formatWon(part.salesAmount)}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{formatWon(part.receiptAmount)}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{formatWon(part.arBalance)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatPercent((part.salesAmount / part.targetAmount) * 100)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {part.targetAmount ? formatPercent((part.salesAmount / part.targetAmount) * 100) : "-"}
+                </td>
               </tr>
             ))}
           </tbody>
