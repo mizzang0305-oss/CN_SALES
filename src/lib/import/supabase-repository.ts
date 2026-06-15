@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { LimitedApplyRowSelection } from "@/lib/import/limited-apply";
+import type { LimitedApplyRowSelection, LimitedApplyStage } from "@/lib/import/limited-apply";
 import { createNormalizedRows } from "@/lib/import/normalization";
 import { isCommittablePreviewRow } from "@/lib/import/row-classification";
 import { classifyUsageStatus, defaultPartName, normalizeMasterName } from "@/lib/import/master-data";
@@ -253,7 +253,7 @@ export class SupabaseImportRepository implements ImportRepository {
     operator: string;
     selectedRows: LimitedApplyRowSelection[];
     summary: {
-      stage: "G-6B";
+      stage: LimitedApplyStage;
       totalRows: number;
       normalRows: number;
       excludedRows: number;
@@ -298,7 +298,7 @@ export class SupabaseImportRepository implements ImportRepository {
       })
       .select("id, created_at, committed_at")
       .single();
-    if (uploadError) throw new Error(`Create limited apply upload failed: ${uploadError.message}`);
+    if (uploadError) throw new Error(`LIMITED_APPLY_UPLOAD_INSERT_FAILED:${uploadError.code ?? "UNKNOWN"}`);
 
     const rowsToInsert = input.selectedRows.map((selection) => {
       const rowWithSyncHashes = {
@@ -313,7 +313,7 @@ export class SupabaseImportRepository implements ImportRepository {
       .from("ledger_rows")
       .insert(rowsToInsert)
       .select("id, upload_id, part_id, row_index, ledger_date, row_type, identity_hash, content_hash");
-    if (insertError) throw new Error(`Insert limited ledger rows failed: ${insertError.message}`);
+    if (insertError) throw new Error(`LIMITED_APPLY_LEDGER_INSERT_FAILED:${insertError.code ?? "UNKNOWN"}`);
 
     const insertedIds = (inserted ?? []).map((row) => row.id as string);
     const { data: readBackRows, error: readBackError } = await this.db()
@@ -321,7 +321,7 @@ export class SupabaseImportRepository implements ImportRepository {
       .select("id, upload_id, part_id, row_index, ledger_date, row_type, identity_hash, content_hash")
       .in("id", insertedIds)
       .order("row_index", { ascending: true });
-    if (readBackError) throw new Error(`Read back limited ledger rows failed: ${readBackError.message}`);
+    if (readBackError) throw new Error(`LIMITED_APPLY_READBACK_FAILED:${readBackError.code ?? "UNKNOWN"}`);
 
     return {
       importBatchId: upload.id as string,

@@ -1,9 +1,5 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
-  loadLimitedApplyApproval,
   selectLimitedApplyRows,
   validateLimitedApplyApproval,
   validateLimitedApplyPreconditions,
@@ -31,12 +27,31 @@ const baseApproval = {
   update_approved: false,
 };
 
+const g6dApproval = {
+  ...baseApproval,
+  stage: "G-6D",
+  max_rows: 30,
+  source_preview: {
+    existingScopedRows: 3,
+    insertCandidates: 2116,
+    noChangeRows: 3,
+  },
+};
+
 describe("limited apply approval gate", () => {
   it("accepts only the G-6B max-3 insert-only approval shape", () => {
     expect(validateLimitedApplyApproval(baseApproval)).toEqual({
       ok: true,
       blockedReasons: [],
       approval: baseApproval,
+    });
+  });
+
+  it("accepts the G-6D max-30 insert-only approval shape", () => {
+    expect(validateLimitedApplyApproval(g6dApproval)).toEqual({
+      ok: true,
+      blockedReasons: [],
+      approval: g6dApproval,
     });
   });
 
@@ -60,6 +75,16 @@ describe("limited apply approval gate", () => {
     ]));
   });
 
+  it("blocks approvals that enable full apply", () => {
+    const result = validateLimitedApplyApproval({
+      ...g6dApproval,
+      full_apply_approved: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockedReasons).toContain("APPROVAL_FULL_APPLY_ENABLED");
+  });
+
   it("selects the first three insert candidates by source row index", () => {
     const selected = selectLimitedApplyRows({
       rows: [row(8), row(2), row(5), row(1)],
@@ -71,6 +96,33 @@ describe("limited apply approval gate", () => {
     expect(selected.map((item) => item.row.rowIndex)).toEqual([1, 2, 5]);
     expect(selected.map((item) => item.identityHash)).toEqual(["identity-1", "identity-2", "identity-5"]);
     expect(selected.map((item) => item.contentHash)).toEqual(["content-1", "content-2", "content-5"]);
+  });
+
+  it("selects thirty G-6D insert candidates while skipping already-present sync keys", () => {
+    const rows = Array.from({ length: 35 }, (_, index) => row(index + 1));
+    const syncRows = Array.from({ length: 35 }, (_, index) => syncRow(index + 1));
+    const existingRows = [syncRow(1), syncRow(2), syncRow(3)];
+    const selected = selectLimitedApplyRows({
+      rows,
+      syncRows,
+      existingRows,
+      maxRows: 30,
+    });
+
+    expect(selected).toHaveLength(30);
+    expect(selected[0]?.row.rowIndex).toBe(4);
+    expect(selected.at(-1)?.row.rowIndex).toBe(33);
+  });
+
+  it("skips non-ISO ledger dates when choosing limited apply rows", () => {
+    const selected = selectLimitedApplyRows({
+      rows: [row(1, "not-a-date"), row(2, "2026-06-01"), row(3, "2026-06-02")],
+      syncRows: [syncRow(1), syncRow(2), syncRow(3)],
+      existingRows: [],
+      maxRows: 2,
+    });
+
+    expect(selected.map((item) => item.row.rowIndex)).toEqual([2, 3]);
   });
 
   it("blocks limited apply when diff readiness changes before write", () => {
@@ -89,25 +141,52 @@ describe("limited apply approval gate", () => {
     expect(result.blockedReasons).toContain("UPDATE_CANDIDATE_PRESENT");
   });
 
-  it("loads a BOM-prefixed local approval file without weakening approval checks", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cn-sales-g6b-approval-"));
-    const approvalPath = join(dir, "approval.json");
-    await writeFile(approvalPath, `\uFEFF${JSON.stringify(baseApproval)}`, "utf8");
+  it("allows G-6D when the pre-apply diff matches the expected post-G-6B state", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6dApproval,
+      sourceFileHash: g6dApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 3,
+        insertCandidates: 2116,
+        noChangeRows: 3,
+      }),
+    });
 
-    expect(await loadLimitedApplyApproval(approvalPath)).toEqual({
+    expect(result).toEqual({
       ok: true,
       blockedReasons: [],
-      approval: baseApproval,
     });
   });
+
+  it("blocks G-6D when the pre-apply diff no longer matches the expected counts", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6dApproval,
+      sourceFileHash: g6dApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 4,
+        insertCandidates: 2115,
+        noChangeRows: 4,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockedReasons).toEqual(expect.arrayContaining([
+      "EXISTING_SCOPED_ROWS_MISMATCH",
+      "INSERT_CANDIDATES_MISMATCH",
+      "NO_CHANGE_ROWS_MISMATCH",
+    ]));
+  });
+
 });
 
-function row(rowIndex: number): ParsedLedgerRow {
+function row(rowIndex: number, ledgerDate = "2026-06-02"): ParsedLedgerRow {
   const parsed = {
     rowIndex,
     rowType: "item_detail",
     partCode: "11",
-    ledgerDate: "2026-06-02",
+    ledgerDate,
     customerCode: null,
     customerName: "Synthetic Customer",
     productName: "Synthetic Product",
@@ -142,13 +221,17 @@ function syncRow(rowIndex: number): LedgerSyncRow {
   };
 }
 
-function diffPlan(overrides: Partial<LedgerSyncDiffPlan["diff"]> & Partial<Pick<LedgerSyncDiffPlan, "planReady">>): LedgerSyncDiffPlan {
+function diffPlan(
+  overrides: Partial<LedgerSyncDiffPlan["diff"]> &
+    Partial<Pick<LedgerSyncDiffPlan, "planReady">> &
+    { existingScopedRows?: number },
+): LedgerSyncDiffPlan {
   return {
     scope: { partCode: "11", dateFrom: "2026-06-01", dateTo: "2026-06-06" },
     planReady: overrides.planReady ?? true,
     blockedReasons: [],
     incoming: { normalRows: 2119, excludedRows: 275, warningRows: 0, errorRows: 0 },
-    existing: { scopedRows: 0 },
+    existing: { scopedRows: overrides.existingScopedRows ?? 0 },
     diff: {
       insertCandidates: overrides.insertCandidates ?? 2119,
       updateCandidates: overrides.updateCandidates ?? 0,

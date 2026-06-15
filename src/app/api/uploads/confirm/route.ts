@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createImportService, createPreviewOnlyImportService } from "@/lib/import/service-factory";
 import {
+  isLimitedApplyStage,
   loadLimitedApplyApproval,
   selectLimitedApplyRows,
   validateLimitedApplyPreconditions,
@@ -73,6 +74,12 @@ function missingAcknowledgements(formData: FormData) {
   return missing;
 }
 
+function getLimitedApplySafeCode(value: unknown) {
+  if (!(value instanceof Error)) return null;
+  const message = value["message"];
+  return typeof message === "string" && message.startsWith("LIMITED_APPLY_") ? message : null;
+}
+
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") ?? "";
@@ -83,7 +90,8 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const dryRun = getBoolean(formData, "dryRun");
     const approvalStage = getString(formData, "approvalStage");
-    const limitedApplyRequested = !dryRun && approvalStage === "G-6B";
+    const limitedApplyStage = isLimitedApplyStage(approvalStage) ? approvalStage : null;
+    const limitedApplyRequested = !dryRun && Boolean(limitedApplyStage);
     if (!dryRun && !limitedApplyRequested) {
       return applyNotApprovedResponse();
     }
@@ -246,7 +254,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const approvalValidation = await loadLimitedApplyApproval();
+    const approvalValidation = await loadLimitedApplyApproval(limitedApplyStage ?? "G-6B");
     if (!approvalValidation.ok || !approvalValidation.approval) {
       return safeError(403, "LIMITED_APPLY_APPROVAL_BLOCKED", "Limited apply approval file is missing or invalid.", {
         dryRun: false,
@@ -314,7 +322,7 @@ export async function POST(request: Request) {
       operator,
       selectedRows,
       summary: {
-        stage: "G-6B",
+        stage: approvalValidation.approval.stage,
         totalRows: operationalSummary.totalRows,
         normalRows: operationalSummary.normalRows,
         excludedRows: preview.summary.excludedRows,
@@ -335,7 +343,7 @@ export async function POST(request: Request) {
       ok: true,
       dryRun: false,
       applyMode: "limited-apply",
-      stage: "G-6B",
+      stage: approvalValidation.approval.stage,
       actualApplyExecuted: true,
       actualApplyReady: false,
       importBatchId: result.importBatchId,
@@ -377,7 +385,12 @@ export async function POST(request: Request) {
         seedApply: false,
       },
     });
-  } catch {
+  } catch (error) {
+    const limitedApplySafeCode = getLimitedApplySafeCode(error);
+    if (limitedApplySafeCode) {
+      return safeError(500, limitedApplySafeCode, "Limited apply failed safely.", { applyReady: false });
+    }
+
     return safeError(500, "CONFIRM_DRY_RUN_FAILED", "Confirm dry-run failed safely.", { applyReady: false });
   }
 }
