@@ -81,6 +81,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).toContain("error_by_reason");
     expect(confirmRouteSource).toContain("createPreviewOnlyImportService");
     expect(confirmRouteSource).toContain("approvalStage");
+    expect(confirmRouteSource).toContain("isLimitedApplyStage");
     expect(confirmRouteSource).toContain("loadLimitedApplyApproval");
     expect(confirmRouteSource).toContain("validateLimitedApplyPreconditions");
     expect(confirmRouteSource).toContain("selectLimitedApplyRows");
@@ -95,7 +96,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).not.toContain("error.message");
   });
 
-  it("keeps G-6B limited apply on insert-only ledger row persistence", () => {
+  it("keeps G-6B/G-6D limited apply on insert-only ledger row persistence", () => {
     const methodStart = supabaseRepositorySource.indexOf("async limitedInsertLedgerRows");
     const methodEnd = supabaseRepositorySource.indexOf("async getDashboardTotals", methodStart);
     const methodSource = supabaseRepositorySource.slice(methodStart, methodEnd);
