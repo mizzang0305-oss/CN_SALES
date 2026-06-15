@@ -4,6 +4,7 @@ export interface LedgerSyncScope {
   partCode: string;
   dateFrom: string;
   dateTo: string;
+  scopeSource: "explicit-request" | "derived" | "fallback";
 }
 
 export interface LedgerSyncDiffPlan {
@@ -60,12 +61,24 @@ export function deriveLedgerSyncScope(input: {
   dates: string[];
   fallbackDateFrom: string;
   fallbackDateTo: string;
+  explicitDateFrom?: string;
+  explicitDateTo?: string;
 }): LedgerSyncScope {
+  if (input.explicitDateFrom && input.explicitDateTo) {
+    return {
+      partCode: input.partCode,
+      dateFrom: input.explicitDateFrom,
+      dateTo: input.explicitDateTo,
+      scopeSource: "explicit-request",
+    };
+  }
+
   const dates = input.dates.filter(isIsoDate).sort();
   return {
     partCode: input.partCode,
     dateFrom: dates[0] ?? input.fallbackDateFrom,
     dateTo: dates.at(-1) ?? input.fallbackDateTo,
+    scopeSource: dates.length > 0 ? "derived" : "fallback",
   };
 }
 

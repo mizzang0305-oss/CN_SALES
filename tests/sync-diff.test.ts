@@ -6,6 +6,7 @@ const scope = {
   partCode: "11",
   dateFrom: "2026-06-01",
   dateTo: "2026-06-06",
+  scopeSource: "derived" as const,
 };
 
 describe("ledger sync diff planner", () => {
@@ -19,6 +20,23 @@ describe("ledger sync diff planner", () => {
       partCode: "11",
       dateFrom: "2026-06-01",
       dateTo: "2026-06-06",
+      scopeSource: "derived",
+    });
+  });
+
+  it("uses explicit request period before derived ISO ledger dates", () => {
+    expect(deriveLedgerSyncScope({
+      partCode: "11",
+      dates: ["2026-06-01", "2026-06-30"],
+      fallbackDateFrom: "2026-06-01",
+      fallbackDateTo: "2026-06-30",
+      explicitDateFrom: "2026-06-01",
+      explicitDateTo: "2026-06-06",
+    })).toEqual({
+      partCode: "11",
+      dateFrom: "2026-06-01",
+      dateTo: "2026-06-06",
+      scopeSource: "explicit-request",
     });
   });
 

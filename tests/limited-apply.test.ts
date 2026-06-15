@@ -302,12 +302,65 @@ describe("limited apply approval gate", () => {
         insertCandidates: 1986,
         noChangeRows: 133,
       }),
+      requestScope: {
+        partCode: "11",
+        dateFrom: "2026-06-01",
+        dateTo: "2026-06-06",
+        scopeSource: "explicit-request",
+      },
+      requireExplicitRequestScope: true,
     });
 
     expect(result).toEqual({
       ok: true,
       blockedReasons: [],
     });
+  });
+
+  it("blocks G-6F without an explicit request period scope", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6fApproval,
+      sourceFileHash: g6fApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 133,
+        insertCandidates: 1986,
+        noChangeRows: 133,
+      }),
+      requestScope: {
+        partCode: "11",
+        dateFrom: "2026-06-01",
+        dateTo: "2026-06-06",
+        scopeSource: "derived",
+      },
+      requireExplicitRequestScope: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockedReasons).toContain("REQUEST_PERIOD_SCOPE_REQUIRED");
+  });
+
+  it("blocks G-6F when the request period does not match approval scope", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6fApproval,
+      sourceFileHash: g6fApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 133,
+        insertCandidates: 1986,
+        noChangeRows: 133,
+      }),
+      requestScope: {
+        partCode: "11",
+        dateFrom: "2026-06-01",
+        dateTo: "2026-06-30",
+        scopeSource: "explicit-request",
+      },
+      requireExplicitRequestScope: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockedReasons).toContain("REQUEST_SCOPE_DATE_MISMATCH");
   });
 
   it("blocks G-6F when update, delete, warning, or error rows appear before write", () => {
@@ -423,7 +476,7 @@ function diffPlan(
     { existingScopedRows?: number; warningRows?: number; errorRows?: number },
 ): LedgerSyncDiffPlan {
   return {
-    scope: { partCode: "11", dateFrom: "2026-06-01", dateTo: "2026-06-06" },
+    scope: { partCode: "11", dateFrom: "2026-06-01", dateTo: "2026-06-06", scopeSource: "derived" },
     planReady: overrides.planReady ?? true,
     blockedReasons: [],
     incoming: {

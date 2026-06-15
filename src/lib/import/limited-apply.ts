@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LedgerSyncDiffPlan } from "@/lib/import/sync-diff";
+import type { LedgerSyncDiffPlan, LedgerSyncScope } from "@/lib/import/sync-diff";
 import type { LedgerSyncRow } from "@/lib/import/sync-key";
 import type { ParsedLedgerRow } from "@/lib/types";
 
@@ -187,6 +187,8 @@ export function validateLimitedApplyPreconditions(input: {
   sourceFileHash: string;
   selectedPartCode: string;
   syncDiff: LedgerSyncDiffPlan;
+  requestScope?: LedgerSyncScope;
+  requireExplicitRequestScope?: boolean;
 }): { ok: boolean; blockedReasons: string[] } {
   const approvalValidation = validateLimitedApplyApproval(input.approval);
   const blockedReasons = [...approvalValidation.blockedReasons];
@@ -198,6 +200,15 @@ export function validateLimitedApplyPreconditions(input: {
 
   if (input.sourceFileHash !== input.approval.test_file_hash) blockedReasons.push("SOURCE_FILE_HASH_MISMATCH");
   if (input.selectedPartCode !== targetPart) blockedReasons.push("TARGET_PART_MISMATCH");
+  if (input.requireExplicitRequestScope && input.requestScope?.scopeSource !== "explicit-request") {
+    blockedReasons.push("REQUEST_PERIOD_SCOPE_REQUIRED");
+  }
+  if (
+    input.requestScope &&
+    (input.requestScope.dateFrom !== input.approval.date_from || input.requestScope.dateTo !== input.approval.date_to)
+  ) {
+    blockedReasons.push("REQUEST_SCOPE_DATE_MISMATCH");
+  }
   if (input.syncDiff.scope.partCode !== targetPart) blockedReasons.push("SYNC_SCOPE_PART_MISMATCH");
   if (input.syncDiff.scope.dateFrom !== input.approval.date_from || input.syncDiff.scope.dateTo !== input.approval.date_to) {
     blockedReasons.push("SYNC_SCOPE_DATE_MISMATCH");

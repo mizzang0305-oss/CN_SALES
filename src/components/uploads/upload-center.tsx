@@ -95,7 +95,7 @@ type DryRunReport = {
     item_count?: number;
   };
   syncDiff?: {
-    scope: { partCode: string; dateFrom: string; dateTo: string };
+    scope: { partCode: string; dateFrom: string; dateTo: string; scopeSource?: string };
     planReady?: boolean;
     blockedReasons?: string[];
     incoming: { normalRows: number; excludedRows: number; warningRows: number; errorRows: number };
@@ -504,6 +504,7 @@ export function UploadCenter() {
                       <ReportField label="planReady" value={dryRunReport.syncDiff.planReady ? "true" : "false"} />
                       <ReportField label="scope_part" value={dryRunReport.syncDiff.scope.partCode} />
                       <ReportField label="date_range" value={`${dryRunReport.syncDiff.scope.dateFrom} ~ ${dryRunReport.syncDiff.scope.dateTo}`} />
+                      <ReportField label="scope_source" value={dryRunReport.syncDiff.scope.scopeSource ?? "-"} />
                       <ReportField label="existing_scoped_rows" value={formatNumber(dryRunReport.syncDiff.existing.scopedRows)} />
                       <ReportField label="insertCandidates" value={formatNumber(dryRunReport.syncDiff.diff.insertCandidates)} />
                       <ReportField label="updateCandidates" value={formatNumber(dryRunReport.syncDiff.diff.updateCandidates)} />

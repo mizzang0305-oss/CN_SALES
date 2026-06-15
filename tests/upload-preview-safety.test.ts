@@ -253,7 +253,7 @@ describe("upload preview route response safety", () => {
         maxDuplicateGroupSize: number;
       };
       syncDiff?: {
-        scope: { partCode: string; dateFrom: string; dateTo: string };
+        scope: { partCode: string; dateFrom: string; dateTo: string; scopeSource: "explicit-request" | "derived" | "fallback" };
         incoming: { normalRows: number; excludedRows: number; warningRows: number; errorRows: number };
         existing: { scopedRows: number };
         diff: {
@@ -307,7 +307,7 @@ describe("upload preview route response safety", () => {
       maxDuplicateGroupSize: 0,
     });
     expect(body.syncDiff).toMatchObject({
-      scope: { partCode: "5", dateFrom: "2026-06-05", dateTo: "2026-06-05" },
+      scope: { partCode: "5", dateFrom: "2026-06-05", dateTo: "2026-06-05", scopeSource: "derived" },
       incoming: { normalRows: 2, excludedRows: 0, warningRows: 0, errorRows: 0 },
       existing: { scopedRows: 0 },
       diff: {
@@ -333,6 +333,34 @@ describe("upload preview route response safety", () => {
     for (const fragment of forbiddenSourceRowFragments()) {
       expect(text).not.toContain(fragment);
     }
+  });
+
+  it("uses explicit request dates as the confirm dry-run sync scope when provided", async () => {
+    const formData = await createConfirmFormData();
+    formData.set("periodStart", "2026-06-01");
+    formData.set("periodEnd", "2026-06-06");
+
+    const response = await confirmPost(new Request("http://localhost/api/uploads/confirm", { method: "POST", body: formData }));
+    const body = (await response.json()) as {
+      syncScope?: { partCode: string; dateFrom: string; dateTo: string; scopeSource: string };
+      syncDiff?: { scope: { partCode: string; dateFrom: string; dateTo: string; scopeSource: string } };
+      scopeSource?: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.scopeSource).toBe("explicit-request");
+    expect(body.syncScope).toMatchObject({
+      partCode: "5",
+      dateFrom: "2026-06-01",
+      dateTo: "2026-06-06",
+      scopeSource: "explicit-request",
+    });
+    expect(body.syncDiff?.scope).toMatchObject({
+      partCode: "5",
+      dateFrom: "2026-06-01",
+      dateTo: "2026-06-06",
+      scopeSource: "explicit-request",
+    });
   });
 
   it("keeps excluded-only helper rows separate from actual error rows in confirm dry-run", async () => {
