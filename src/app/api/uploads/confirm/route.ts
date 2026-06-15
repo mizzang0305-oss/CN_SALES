@@ -4,6 +4,7 @@ import {
   isLimitedApplyStage,
   loadLimitedApplyApproval,
   selectLimitedApplyRows,
+  summarizeLimitedApplyDateGuard,
   validateLimitedApplyPreconditions,
 } from "@/lib/import/limited-apply";
 import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-data";
@@ -303,6 +304,16 @@ export async function POST(request: Request) {
       });
     }
 
+    const limitedApplyDateGuard = summarizeLimitedApplyDateGuard(selectedRows);
+    if (limitedApplyDateGuard.nonIsoLedgerDateRows > 0 || limitedApplyDateGuard.missingLedgerDateRows > 0) {
+      return safeError(409, "LIMITED_APPLY_LEDGER_DATE_BLOCKED", "Limited apply selected rows contain invalid ledger dates.", {
+        dryRun: false,
+        actualApplyReady: false,
+        actualApplyBlockedReason: "LIMITED_APPLY_LEDGER_DATE_BLOCKED",
+        limitedApplyDateGuard,
+      });
+    }
+
     const writeService = await createImportService();
     if (!writeService.status.canWrite || !(writeService.repository instanceof SupabaseImportRepository)) {
       return safeError(403, "LIMITED_APPLY_WRITE_CLIENT_BLOCKED", "Supabase write client is not configured for limited apply.", {
@@ -353,6 +364,7 @@ export async function POST(request: Request) {
       updatedRows: result.updatedRows,
       deletedRows: result.deletedRows,
       normalizedTableWrite: result.normalizedTableWrite,
+      limitedApplyDateGuard,
       readBack: {
         rowCount: result.readBackRows.length,
         matchesRequestedRows: result.readBackRows.length === approvalValidation.approval.max_rows,

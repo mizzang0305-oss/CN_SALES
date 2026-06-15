@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   selectLimitedApplyRows,
+  summarizeLimitedApplyDateGuard,
   validateLimitedApplyApproval,
   validateLimitedApplyPreconditions,
 } from "@/lib/import/limited-apply";
@@ -38,6 +39,17 @@ const g6dApproval = {
   },
 };
 
+const g6eApproval = {
+  ...baseApproval,
+  stage: "G-6E",
+  max_rows: 100,
+  source_preview: {
+    existingScopedRows: 33,
+    insertCandidates: 2086,
+    noChangeRows: 33,
+  },
+};
+
 describe("limited apply approval gate", () => {
   it("accepts only the G-6B max-3 insert-only approval shape", () => {
     expect(validateLimitedApplyApproval(baseApproval)).toEqual({
@@ -52,6 +64,14 @@ describe("limited apply approval gate", () => {
       ok: true,
       blockedReasons: [],
       approval: g6dApproval,
+    });
+  });
+
+  it("accepts the G-6E max-100 insert-only approval shape", () => {
+    expect(validateLimitedApplyApproval(g6eApproval)).toEqual({
+      ok: true,
+      blockedReasons: [],
+      approval: g6eApproval,
     });
   });
 
@@ -114,6 +134,22 @@ describe("limited apply approval gate", () => {
     expect(selected.at(-1)?.row.rowIndex).toBe(33);
   });
 
+  it("selects one hundred G-6E insert candidates while skipping already-present sync keys", () => {
+    const rows = Array.from({ length: 140 }, (_, index) => row(index + 1));
+    const syncRows = Array.from({ length: 140 }, (_, index) => syncRow(index + 1));
+    const existingRows = Array.from({ length: 33 }, (_, index) => syncRow(index + 1));
+    const selected = selectLimitedApplyRows({
+      rows,
+      syncRows,
+      existingRows,
+      maxRows: 100,
+    });
+
+    expect(selected).toHaveLength(100);
+    expect(selected[0]?.row.rowIndex).toBe(34);
+    expect(selected.at(-1)?.row.rowIndex).toBe(133);
+  });
+
   it("skips non-ISO ledger dates when choosing limited apply rows", () => {
     const selected = selectLimitedApplyRows({
       rows: [row(1, "not-a-date"), row(2, "2026-06-01"), row(3, "2026-06-02")],
@@ -123,6 +159,21 @@ describe("limited apply approval gate", () => {
     });
 
     expect(selected.map((item) => item.row.rowIndex)).toEqual([2, 3]);
+  });
+
+  it("summarizes selected-row ledger date guard without exposing row content", () => {
+    const selected = selectLimitedApplyRows({
+      rows: [row(1, "2026-06-01"), row(2, "2026-06-02")],
+      syncRows: [syncRow(1), syncRow(2)],
+      existingRows: [],
+      maxRows: 2,
+    });
+
+    expect(summarizeLimitedApplyDateGuard(selected)).toEqual({
+      checkedRows: 2,
+      nonIsoLedgerDateRows: 0,
+      missingLedgerDateRows: 0,
+    });
   });
 
   it("blocks limited apply when diff readiness changes before write", () => {
@@ -159,6 +210,24 @@ describe("limited apply approval gate", () => {
     });
   });
 
+  it("allows G-6E when the pre-apply diff matches the expected post-G-6D state", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6eApproval,
+      sourceFileHash: g6eApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 33,
+        insertCandidates: 2086,
+        noChangeRows: 33,
+      }),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      blockedReasons: [],
+    });
+  });
+
   it("blocks G-6D when the pre-apply diff no longer matches the expected counts", () => {
     const result = validateLimitedApplyPreconditions({
       approval: g6dApproval,
@@ -168,6 +237,26 @@ describe("limited apply approval gate", () => {
         existingScopedRows: 4,
         insertCandidates: 2115,
         noChangeRows: 4,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockedReasons).toEqual(expect.arrayContaining([
+      "EXISTING_SCOPED_ROWS_MISMATCH",
+      "INSERT_CANDIDATES_MISMATCH",
+      "NO_CHANGE_ROWS_MISMATCH",
+    ]));
+  });
+
+  it("blocks G-6E when the pre-apply diff no longer matches the expected counts", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6eApproval,
+      sourceFileHash: g6eApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 34,
+        insertCandidates: 2085,
+        noChangeRows: 34,
       }),
     });
 
