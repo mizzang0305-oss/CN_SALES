@@ -8,6 +8,7 @@ const previewRouteSource = readFileSync(join(process.cwd(), "src", "app", "api",
 const confirmRouteSource = readFileSync(join(process.cwd(), "src", "app", "api", "uploads", "confirm", "route.ts"), "utf8");
 const serviceFactorySource = readFileSync(join(process.cwd(), "src", "lib", "import", "service-factory.ts"), "utf8");
 const supabaseRepositorySource = readFileSync(join(process.cwd(), "src", "lib", "import", "supabase-repository.ts"), "utf8");
+const limitedApplySource = readFileSync(join(process.cwd(), "src", "lib", "import", "limited-apply.ts"), "utf8");
 const pythonParserSource = readFileSync(join(process.cwd(), "src", "lib", "import", "python-parser.ts"), "utf8");
 
 describe("upload preview safety and part mismatch guards", () => {
@@ -99,7 +100,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).not.toContain("error.message");
   });
 
-  it("keeps G-6B/G-6D/G-6E limited apply on insert-only ledger row persistence", () => {
+  it("keeps G-6B/G-6D/G-6E/G-6F limited apply on insert-only ledger row persistence", () => {
     const methodStart = supabaseRepositorySource.indexOf("async limitedInsertLedgerRows");
     const methodEnd = supabaseRepositorySource.indexOf("async getDashboardTotals", methodStart);
     const methodSource = supabaseRepositorySource.slice(methodStart, methodEnd);
@@ -116,6 +117,15 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(methodSource).not.toContain("insertNormalized");
     expect(methodSource).not.toContain("upsertCustomer");
     expect(methodSource).not.toContain("upsertProduct");
+  });
+
+  it("keeps G-6F configured as a max-500 explicit limited apply stage", () => {
+    expect(limitedApplySource).toContain('"G-6F"');
+    expect(limitedApplySource).toContain("g6f_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("expectedMaxRows: 500");
+    expect(limitedApplySource).toContain("expectedExistingScopedRows: 133");
+    expect(limitedApplySource).toContain("expectedInsertCandidates: 1986");
+    expect(limitedApplySource).toContain("expectedNoChangeRows: 133");
   });
 
   it("keeps preview-only service separate from Supabase preview persistence", () => {

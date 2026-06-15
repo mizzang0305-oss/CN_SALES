@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  getLimitedApplyStageConfig,
+  isLimitedApplyStage,
   selectLimitedApplyRows,
   summarizeLimitedApplyDateGuard,
   validateLimitedApplyApproval,
@@ -50,7 +52,29 @@ const g6eApproval = {
   },
 };
 
+const g6fApproval = {
+  ...baseApproval,
+  stage: "G-6F",
+  max_rows: 500,
+  source_preview: {
+    existingScopedRows: 133,
+    insertCandidates: 1986,
+    noChangeRows: 133,
+  },
+};
+
 describe("limited apply approval gate", () => {
+  it("recognizes G-6F as a configured limited apply stage", () => {
+    expect(isLimitedApplyStage("G-6F")).toBe(true);
+    expect(getLimitedApplyStageConfig("G-6F")).toMatchObject({
+      stage: "G-6F",
+      expectedMaxRows: 500,
+      expectedExistingScopedRows: 133,
+      expectedInsertCandidates: 1986,
+      expectedNoChangeRows: 133,
+    });
+  });
+
   it("accepts only the G-6B max-3 insert-only approval shape", () => {
     expect(validateLimitedApplyApproval(baseApproval)).toEqual({
       ok: true,
@@ -73,6 +97,30 @@ describe("limited apply approval gate", () => {
       blockedReasons: [],
       approval: g6eApproval,
     });
+  });
+
+  it("accepts the G-6F max-500 insert-only approval shape", () => {
+    expect(validateLimitedApplyApproval(g6fApproval)).toEqual({
+      ok: true,
+      blockedReasons: [],
+      approval: g6fApproval,
+    });
+  });
+
+  it("blocks G-6F approvals when maxRows is not exactly 500", () => {
+    const belowLimit = validateLimitedApplyApproval({
+      ...g6fApproval,
+      max_rows: 499,
+    });
+    const aboveLimit = validateLimitedApplyApproval({
+      ...g6fApproval,
+      max_rows: 501,
+    });
+
+    expect(belowLimit.ok).toBe(false);
+    expect(belowLimit.blockedReasons).toContain("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
+    expect(aboveLimit.ok).toBe(false);
+    expect(aboveLimit.blockedReasons).toContain("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
   });
 
   it("blocks approvals that exceed max rows or enable update/delete/production side effects", () => {
@@ -148,6 +196,22 @@ describe("limited apply approval gate", () => {
     expect(selected).toHaveLength(100);
     expect(selected[0]?.row.rowIndex).toBe(34);
     expect(selected.at(-1)?.row.rowIndex).toBe(133);
+  });
+
+  it("selects five hundred G-6F insert candidates while skipping already-present sync keys", () => {
+    const rows = Array.from({ length: 700 }, (_, index) => row(index + 1));
+    const syncRows = Array.from({ length: 700 }, (_, index) => syncRow(index + 1));
+    const existingRows = Array.from({ length: 133 }, (_, index) => syncRow(index + 1));
+    const selected = selectLimitedApplyRows({
+      rows,
+      syncRows,
+      existingRows,
+      maxRows: 500,
+    });
+
+    expect(selected).toHaveLength(500);
+    expect(selected[0]?.row.rowIndex).toBe(134);
+    expect(selected.at(-1)?.row.rowIndex).toBe(633);
   });
 
   it("skips non-ISO ledger dates when choosing limited apply rows", () => {
@@ -226,6 +290,49 @@ describe("limited apply approval gate", () => {
       ok: true,
       blockedReasons: [],
     });
+  });
+
+  it("allows G-6F when the pre-apply diff matches the expected post-G-6E state", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6fApproval,
+      sourceFileHash: g6fApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 133,
+        insertCandidates: 1986,
+        noChangeRows: 133,
+      }),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      blockedReasons: [],
+    });
+  });
+
+  it("blocks G-6F when update, delete, warning, or error rows appear before write", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6fApproval,
+      sourceFileHash: g6fApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 133,
+        insertCandidates: 1986,
+        noChangeRows: 133,
+        updateCandidates: 1,
+        deleteCandidates: 1,
+        warningRows: 1,
+        errorRows: 1,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockedReasons).toEqual(expect.arrayContaining([
+      "UPDATE_CANDIDATE_PRESENT",
+      "DELETE_CANDIDATE_PRESENT",
+      "WARNING_ROWS_PRESENT",
+      "ERROR_ROWS_PRESENT",
+    ]));
   });
 
   it("blocks G-6D when the pre-apply diff no longer matches the expected counts", () => {
@@ -313,13 +420,18 @@ function syncRow(rowIndex: number): LedgerSyncRow {
 function diffPlan(
   overrides: Partial<LedgerSyncDiffPlan["diff"]> &
     Partial<Pick<LedgerSyncDiffPlan, "planReady">> &
-    { existingScopedRows?: number },
+    { existingScopedRows?: number; warningRows?: number; errorRows?: number },
 ): LedgerSyncDiffPlan {
   return {
     scope: { partCode: "11", dateFrom: "2026-06-01", dateTo: "2026-06-06" },
     planReady: overrides.planReady ?? true,
     blockedReasons: [],
-    incoming: { normalRows: 2119, excludedRows: 275, warningRows: 0, errorRows: 0 },
+    incoming: {
+      normalRows: 2119,
+      excludedRows: 275,
+      warningRows: overrides.warningRows ?? 0,
+      errorRows: overrides.errorRows ?? 0,
+    },
     existing: { scopedRows: overrides.existingScopedRows ?? 0 },
     diff: {
       insertCandidates: overrides.insertCandidates ?? 2119,
