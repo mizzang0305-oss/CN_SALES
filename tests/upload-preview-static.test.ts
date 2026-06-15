@@ -85,6 +85,9 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).toContain("loadLimitedApplyApproval");
     expect(confirmRouteSource).toContain("validateLimitedApplyPreconditions");
     expect(confirmRouteSource).toContain("selectLimitedApplyRows");
+    expect(confirmRouteSource).toContain("summarizeLimitedApplyDateGuard");
+    expect(confirmRouteSource).toContain("limitedApplyDateGuard");
+    expect(confirmRouteSource).toContain("LIMITED_APPLY_LEDGER_DATE_BLOCKED");
     expect(confirmRouteSource).toContain("limitedInsertLedgerRows");
     expect(confirmRouteSource).toContain("LIMITED_APPLY_PRECHECK_BLOCKED");
     expect(confirmRouteSource).toContain("LIMITED_APPLY_WRITE_CLIENT_BLOCKED");
@@ -96,7 +99,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).not.toContain("error.message");
   });
 
-  it("keeps G-6B/G-6D limited apply on insert-only ledger row persistence", () => {
+  it("keeps G-6B/G-6D/G-6E limited apply on insert-only ledger row persistence", () => {
     const methodStart = supabaseRepositorySource.indexOf("async limitedInsertLedgerRows");
     const methodEnd = supabaseRepositorySource.indexOf("async getDashboardTotals", methodStart);
     const methodSource = supabaseRepositorySource.slice(methodStart, methodEnd);

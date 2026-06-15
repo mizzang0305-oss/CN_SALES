@@ -7,7 +7,7 @@ import type { ParsedLedgerRow } from "@/lib/types";
 export const G6B_EXPECTED_SOURCE_FILE_HASH =
   "sha256:37e0833cf4329d08c7ee4093e4807712bd41c30149a344b8db440e1cb5472ca0";
 
-export type LimitedApplyStage = "G-6B" | "G-6D";
+export type LimitedApplyStage = "G-6B" | "G-6D" | "G-6E";
 
 export interface LimitedApplyStageConfig {
   stage: LimitedApplyStage;
@@ -34,6 +34,14 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedExistingScopedRows: 3,
     expectedInsertCandidates: 2116,
     expectedNoChangeRows: 3,
+  },
+  "G-6E": {
+    stage: "G-6E",
+    approvalFileName: "g6e_limited_apply_approval.json",
+    expectedMaxRows: 100,
+    expectedExistingScopedRows: 33,
+    expectedInsertCandidates: 2086,
+    expectedNoChangeRows: 33,
   },
 };
 
@@ -150,6 +158,22 @@ export function selectLimitedApplyRows(input: {
     }));
 }
 
+export function summarizeLimitedApplyDateGuard(selectedRows: LimitedApplyRowSelection[]) {
+  return selectedRows.reduce(
+    (summary, selection) => {
+      summary.checkedRows += 1;
+      if (!selection.row.ledgerDate) summary.missingLedgerDateRows += 1;
+      if (!isIsoDate(selection.row.ledgerDate)) summary.nonIsoLedgerDateRows += 1;
+      return summary;
+    },
+    {
+      checkedRows: 0,
+      nonIsoLedgerDateRows: 0,
+      missingLedgerDateRows: 0,
+    },
+  );
+}
+
 export function validateLimitedApplyPreconditions(input: {
   approval: LimitedApplyApproval;
   sourceFileHash: string;
@@ -210,7 +234,7 @@ function isIsoDate(value: string) {
 }
 
 export function isLimitedApplyStage(value: string): value is LimitedApplyStage {
-  return value === "G-6B" || value === "G-6D";
+  return value === "G-6B" || value === "G-6D" || value === "G-6E";
 }
 
 export function getLimitedApplyStageConfig(stage: unknown): LimitedApplyStageConfig | null {
