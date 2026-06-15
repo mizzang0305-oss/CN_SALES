@@ -36,6 +36,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(uploadCenterSource).toContain("dryRunDisabled");
     expect(uploadCenterSource).toContain("runDryRunConfirm");
     expect(uploadCenterSource).toContain("syncDiff");
+    expect(uploadCenterSource).toContain("scope_source");
     expect(uploadCenterSource).toContain("insertCandidates");
     expect(uploadCenterSource).toContain("deleteCandidates");
     expect(uploadCenterSource).toContain("incomingIdentityDuplicates");
@@ -85,6 +86,12 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).toContain("isLimitedApplyStage");
     expect(confirmRouteSource).toContain("loadLimitedApplyApproval");
     expect(confirmRouteSource).toContain("validateLimitedApplyPreconditions");
+    expect(confirmRouteSource).toContain("requestPeriodStart");
+    expect(confirmRouteSource).toContain("requestPeriodEnd");
+    expect(confirmRouteSource).toContain("explicitDateFrom");
+    expect(confirmRouteSource).toContain("explicitDateTo");
+    expect(confirmRouteSource).toContain("scopeSource");
+    expect(confirmRouteSource).toContain("LIMITED_APPLY_PERIOD_SCOPE_REQUIRED");
     expect(confirmRouteSource).toContain("selectLimitedApplyRows");
     expect(confirmRouteSource).toContain("summarizeLimitedApplyDateGuard");
     expect(confirmRouteSource).toContain("limitedApplyDateGuard");
@@ -126,6 +133,9 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(limitedApplySource).toContain("expectedExistingScopedRows: 133");
     expect(limitedApplySource).toContain("expectedInsertCandidates: 1986");
     expect(limitedApplySource).toContain("expectedNoChangeRows: 133");
+    expect(limitedApplySource).toContain("requireExplicitRequestScope");
+    expect(limitedApplySource).toContain("REQUEST_PERIOD_SCOPE_REQUIRED");
+    expect(limitedApplySource).toContain("REQUEST_SCOPE_DATE_MISMATCH");
   });
 
   it("keeps preview-only service separate from Supabase preview persistence", () => {

@@ -93,8 +93,19 @@ export async function POST(request: Request) {
     const approvalStage = getString(formData, "approvalStage");
     const limitedApplyStage = isLimitedApplyStage(approvalStage) ? approvalStage : null;
     const limitedApplyRequested = !dryRun && Boolean(limitedApplyStage);
+    const requestPeriodStart = getString(formData, "periodStart");
+    const requestPeriodEnd = getString(formData, "periodEnd");
+    const effectivePeriodStart = requestPeriodStart || "2026-06-01";
+    const effectivePeriodEnd = requestPeriodEnd || "2026-06-30";
     if (!dryRun && !limitedApplyRequested) {
       return applyNotApprovedResponse();
+    }
+    if (limitedApplyRequested && (!requestPeriodStart || !requestPeriodEnd)) {
+      return safeError(400, "LIMITED_APPLY_PERIOD_SCOPE_REQUIRED", "Limited apply requires explicit periodStart and periodEnd.", {
+        dryRun: false,
+        actualApplyReady: false,
+        actualApplyBlockedReason: "LIMITED_APPLY_PERIOD_SCOPE_REQUIRED",
+      });
     }
 
     const file = formData.get("file");
@@ -148,8 +159,8 @@ export async function POST(request: Request) {
     const preview = await service.preview({
       file,
       partCode: selectedPartCode,
-      periodStart: getString(formData, "periodStart") || "2026-06-01",
-      periodEnd: getString(formData, "periodEnd") || "2026-06-30",
+      periodStart: effectivePeriodStart,
+      periodEnd: effectivePeriodEnd,
     });
     const operationalSummary = toOperationalPreviewSummary(preview, status.blockedReasons);
     const previewChecksum = createPreviewChecksum({ sourceFileHash, preview, operationalSummary });
@@ -182,8 +193,10 @@ export async function POST(request: Request) {
     const syncScope = deriveLedgerSyncScope({
       partCode: selectedPartCode,
       dates: committableRows.map((row) => row.ledgerDate),
-      fallbackDateFrom: getString(formData, "periodStart") || "2026-06-01",
-      fallbackDateTo: getString(formData, "periodEnd") || "2026-06-30",
+      fallbackDateFrom: effectivePeriodStart,
+      fallbackDateTo: effectivePeriodEnd,
+      explicitDateFrom: requestPeriodStart || undefined,
+      explicitDateTo: requestPeriodEnd || undefined,
     });
     const existingRead = await readExistingLedgerRowsForSync(syncScope);
     const incomingSyncRows = createLedgerSyncRows(committableRows);
@@ -251,6 +264,9 @@ export async function POST(request: Request) {
         existingRowsUseStoredSchemaIdentity: true,
       },
       legacySchemaIdentityDiagnostics,
+      syncScope,
+      approvalScope: null,
+      scopeSource: syncScope.scopeSource,
       syncDiff,
       });
     }
@@ -279,6 +295,8 @@ export async function POST(request: Request) {
       sourceFileHash,
       selectedPartCode,
       syncDiff,
+      requestScope: syncScope,
+      requireExplicitRequestScope: true,
     });
     if (!preconditions.ok) {
       return safeError(409, "LIMITED_APPLY_PRECHECK_BLOCKED", "Limited apply precheck failed.", {
@@ -286,6 +304,12 @@ export async function POST(request: Request) {
         blocked_reasons: preconditions.blockedReasons,
         actualApplyReady: false,
         actualApplyBlockedReason: "LIMITED_APPLY_PRECHECK_BLOCKED",
+        syncScope,
+        approvalScope: {
+          dateFrom: approvalValidation.approval.date_from,
+          dateTo: approvalValidation.approval.date_to,
+        },
+        scopeSource: syncScope.scopeSource,
         syncDiff,
       });
     }
@@ -364,6 +388,12 @@ export async function POST(request: Request) {
       updatedRows: result.updatedRows,
       deletedRows: result.deletedRows,
       normalizedTableWrite: result.normalizedTableWrite,
+      syncScope,
+      approvalScope: {
+        dateFrom: approvalValidation.approval.date_from,
+        dateTo: approvalValidation.approval.date_to,
+      },
+      scopeSource: syncScope.scopeSource,
       limitedApplyDateGuard,
       readBack: {
         rowCount: result.readBackRows.length,
