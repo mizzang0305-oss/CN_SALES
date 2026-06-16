@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { stableHash } from "@/lib/ledger/hash";
 import type { LedgerSyncDiffPlan, LedgerSyncScope } from "@/lib/import/sync-diff";
 import type { LedgerSyncRow } from "@/lib/import/sync-key";
 import type { ParsedLedgerRow } from "@/lib/types";
@@ -133,6 +134,21 @@ export interface LimitedApplyRowSelection {
   contentHash: string;
 }
 
+export interface LimitedApplySelectionDiagnostics {
+  stage: LimitedApplyStage;
+  insertCandidates: number;
+  maxRows: number;
+  candidateRows: number;
+  selectedRowsDryRunEquivalent: number;
+  candidateDigestMatchesSelector: boolean;
+  orderDigestMatchesSelector: boolean;
+  candidateIdentityDigest: string;
+  selectorIdentityDigest: string;
+  candidateOrderDigest: string;
+  selectorOrderDigest: string;
+  rawRowsReturned: false;
+}
+
 export async function loadLimitedApplyApproval(
   stage: LimitedApplyStage = "G-6B",
 ): Promise<LimitedApplyApprovalValidation> {
@@ -190,22 +206,59 @@ export function selectLimitedApplyRows(input: {
   existingRows: LedgerSyncRow[];
   maxRows: number;
 }): LimitedApplyRowSelection[] {
+  return getLimitedApplyCandidateRows(input).slice(0, Math.max(0, input.maxRows));
+}
+
+export function getLimitedApplyCandidateRows(input: {
+  rows: ParsedLedgerRow[];
+  syncRows: LedgerSyncRow[];
+  existingRows: LedgerSyncRow[];
+}): LimitedApplyRowSelection[] {
   const existingBySyncKey = new Set(input.existingRows.map((row) => row.syncKey));
-  const syncByRowIndex = new Map(input.syncRows.map((row) => [row.rowIndex, row]));
 
   return input.rows
-    .map((row) => ({ row, syncRow: syncByRowIndex.get(row.rowIndex) }))
+    .map((row, index) => ({ row, syncRow: input.syncRows[index] }))
     .filter((item): item is { row: ParsedLedgerRow; syncRow: LedgerSyncRow } => Boolean(item.syncRow))
     .filter((item) => !existingBySyncKey.has(item.syncRow.syncKey))
-    .filter((item) => isIsoDate(item.row.ledgerDate))
-    .sort((left, right) => left.row.rowIndex - right.row.rowIndex)
-    .slice(0, Math.max(0, input.maxRows))
+    .sort(compareLimitedApplyCandidates)
     .map((item) => ({
       row: item.row,
       syncRow: item.syncRow,
       identityHash: item.syncRow.syncKey,
       contentHash: item.syncRow.syncContentHash,
     }));
+}
+
+export function createLimitedApplySelectionDiagnostics(input: {
+  stage: LimitedApplyStage;
+  rows: ParsedLedgerRow[];
+  syncRows: LedgerSyncRow[];
+  existingRows: LedgerSyncRow[];
+  maxRows: number;
+  insertCandidates: number;
+}): LimitedApplySelectionDiagnostics {
+  const candidateRows = getLimitedApplyCandidateRows(input);
+  const selectedRows = selectLimitedApplyRows(input);
+  const candidateWindow = candidateRows.slice(0, Math.max(0, input.maxRows));
+  const candidateIdentityDigest = digestSelection(candidateWindow, "identity");
+  const selectorIdentityDigest = digestSelection(selectedRows, "identity");
+  const candidateOrderDigest = digestSelection(candidateWindow, "order");
+  const selectorOrderDigest = digestSelection(selectedRows, "order");
+
+  return {
+    stage: input.stage,
+    insertCandidates: input.insertCandidates,
+    maxRows: input.maxRows,
+    candidateRows: candidateRows.length,
+    selectedRowsDryRunEquivalent: selectedRows.length,
+    candidateDigestMatchesSelector: candidateIdentityDigest === selectorIdentityDigest,
+    orderDigestMatchesSelector: candidateOrderDigest === selectorOrderDigest,
+    candidateIdentityDigest,
+    selectorIdentityDigest,
+    candidateOrderDigest,
+    selectorOrderDigest,
+    rawRowsReturned: false,
+  };
 }
 
 export function summarizeLimitedApplyDateGuard(selectedRows: LimitedApplyRowSelection[]) {
@@ -284,6 +337,30 @@ export function validateLimitedApplyPreconditions(input: {
     ok: blockedReasons.length === 0,
     blockedReasons,
   };
+}
+
+function compareLimitedApplyCandidates(
+  left: { row: ParsedLedgerRow; syncRow: LedgerSyncRow },
+  right: { row: ParsedLedgerRow; syncRow: LedgerSyncRow },
+) {
+  return (
+    left.row.ledgerDate.localeCompare(right.row.ledgerDate) ||
+    left.row.rowIndex - right.row.rowIndex ||
+    left.syncRow.naturalKey.localeCompare(right.syncRow.naturalKey) ||
+    left.syncRow.occurrenceIndexWithinNaturalKey - right.syncRow.occurrenceIndexWithinNaturalKey ||
+    left.syncRow.syncKey.localeCompare(right.syncRow.syncKey)
+  );
+}
+
+function digestSelection(rows: LimitedApplyRowSelection[], mode: "identity" | "order") {
+  return stableHash(rows.map((item, index) => ({
+    index,
+    identityHash: item.identityHash,
+    contentHash: mode === "identity" ? item.contentHash : undefined,
+    ledgerDate: mode === "order" ? item.row.ledgerDate : undefined,
+    rowIndex: mode === "order" ? item.row.rowIndex : undefined,
+    occurrenceIndexWithinNaturalKey: mode === "order" ? item.syncRow.occurrenceIndexWithinNaturalKey : undefined,
+  })));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

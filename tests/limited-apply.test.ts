@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LIMITED_APPLY_STAGE_POLICIES,
+  createLimitedApplySelectionDiagnostics,
   getLimitedApplyStageConfig,
   isLimitedApplyStage,
   selectLimitedApplyRows,
@@ -415,15 +416,55 @@ describe("limited apply approval gate", () => {
     expect(selected.at(-1)?.row.rowIndex).toBe(2119);
   });
 
-  it("skips non-ISO ledger dates when choosing limited apply rows", () => {
+  it("pairs rows and sync rows by array position so duplicate source row indexes do not collapse candidates", () => {
+    const selected = selectLimitedApplyRows({
+      rows: [row(1), row(1), row(2)],
+      syncRows: [syncRow(1, { identity: "identity-a", naturalKey: "natural-a" }), syncRow(1, { identity: "identity-b", naturalKey: "natural-b" }), syncRow(2, { identity: "identity-c", naturalKey: "natural-c" })],
+      existingRows: [syncRow(1, { identity: "identity-b", naturalKey: "natural-b" })],
+      maxRows: 3,
+    });
+
+    expect(selected).toHaveLength(2);
+    expect(selected.map((item) => item.identityHash)).toEqual(["identity-a", "identity-c"]);
+  });
+
+  it("keeps non-ISO ledger dates in selection so the explicit date guard can block them", () => {
     const selected = selectLimitedApplyRows({
       rows: [row(1, "not-a-date"), row(2, "2026-06-01"), row(3, "2026-06-02")],
       syncRows: [syncRow(1), syncRow(2), syncRow(3)],
       existingRows: [],
-      maxRows: 2,
+      maxRows: 3,
     });
 
-    expect(selected.map((item) => item.row.rowIndex)).toEqual([2, 3]);
+    expect(selected).toHaveLength(3);
+    expect(summarizeLimitedApplyDateGuard(selected)).toMatchObject({ checkedRows: 3, nonIsoLedgerDateRows: 1 });
+  });
+
+  it("creates digest-only G-6I diagnostics that align dry-run candidates with selector output", () => {
+    const rows = Array.from({ length: 2119 }, (_, index) => row(index + 1));
+    const syncRows = Array.from({ length: 2119 }, (_, index) => syncRow(index + 1));
+    const existingRows = Array.from({ length: 1633 }, (_, index) => syncRow(index + 1));
+    const diagnostics = createLimitedApplySelectionDiagnostics({
+      stage: "G-6I",
+      rows,
+      syncRows,
+      existingRows,
+      maxRows: 486,
+      insertCandidates: 486,
+    });
+
+    expect(diagnostics).toMatchObject({
+      stage: "G-6I",
+      insertCandidates: 486,
+      maxRows: 486,
+      candidateRows: 486,
+      selectedRowsDryRunEquivalent: 486,
+      candidateDigestMatchesSelector: true,
+      orderDigestMatchesSelector: true,
+      rawRowsReturned: false,
+    });
+    expect(diagnostics.candidateIdentityDigest).toBe(diagnostics.selectorIdentityDigest);
+    expect(diagnostics.candidateOrderDigest).toBe(diagnostics.selectorOrderDigest);
   });
 
   it("summarizes selected-row ledger date guard without exposing row content", () => {
@@ -829,14 +870,16 @@ function row(rowIndex: number, ledgerDate = "2026-06-02"): ParsedLedgerRow {
   return parsed;
 }
 
-function syncRow(rowIndex: number): LedgerSyncRow {
+function syncRow(rowIndex: number, overrides: { identity?: string; content?: string; naturalKey?: string } = {}): LedgerSyncRow {
+  const identity = overrides.identity ?? `identity-${rowIndex}`;
+  const content = overrides.content ?? `content-${rowIndex}`;
   return {
-    naturalKey: "natural",
+    naturalKey: overrides.naturalKey ?? "natural",
     occurrenceIndexWithinNaturalKey: rowIndex,
-    identityHash: `identity-${rowIndex}`,
-    contentHash: `content-${rowIndex}`,
-    syncKey: `identity-${rowIndex}`,
-    syncContentHash: `content-${rowIndex}`,
+    identityHash: identity,
+    contentHash: content,
+    syncKey: identity,
+    syncContentHash: content,
     keyVersion: "natural_occurrence_v2",
     partCode: "11",
     ledgerDate: "2026-06-02",
