@@ -1,4 +1,5 @@
 import { stableHash } from "@/lib/ledger/hash";
+import { normalizeLedgerDate, type LedgerDateIssue } from "@/lib/import/ledger-date-normalization";
 import { isCommittablePreviewRow, summarizeRowIssues } from "@/lib/import/row-classification";
 import type { ImportAction, LedgerRawRow, LedgerRowType, ParsedLedgerRow } from "@/lib/types";
 
@@ -43,13 +44,19 @@ export function parseLedgerRows(input: {
   periodEnd: string;
   existingHashes?: Record<string, string>;
 }) {
+  let carryForwardDate: string | null = null;
   return input.rows.map((rawRowJson, index) => {
     const row = normalizeLedgerRow({
       rawRowJson,
       rowIndex: index + 1,
       partCode: input.partCode,
-      fallbackDate: input.periodEnd,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      carryForwardDate,
     });
+    if (row.ledgerDate && !row.ledgerDateIssue) {
+      carryForwardDate = row.ledgerDate;
+    }
     const previousContentHash = input.existingHashes?.[row.identityHash];
     const action: ImportAction = row.errors.length
       ? "error"
@@ -67,11 +74,28 @@ export function normalizeLedgerRow(input: {
   rawRowJson: LedgerRawRow;
   rowIndex: number;
   partCode: string;
-  fallbackDate: string;
+  periodStart: string;
+  periodEnd: string;
+  carryForwardDate?: string | null;
 }): ParsedLedgerRow {
   const rawRowJson = input.rawRowJson;
   const rowType = classifyLedgerRow(rawRowJson);
-  const ledgerDate = getText(rawRowJson, dateKeys) || input.fallbackDate;
+  let normalizedLedgerDate = normalizeLedgerDate(getValue(rawRowJson, dateKeys), {
+    periodStart: input.periodStart,
+    periodEnd: input.periodEnd,
+  });
+  const ledgerDateWasCarriedForward = shouldCarryForwardLedgerDate(rowType, normalizedLedgerDate.reason)
+    && Boolean(input.carryForwardDate);
+  if (ledgerDateWasCarriedForward && input.carryForwardDate) {
+    normalizedLedgerDate = {
+      ok: true,
+      isoDate: input.carryForwardDate,
+      formatCategory: "yyyy-mm-dd",
+      changedToIso: false,
+      reason: null,
+    };
+  }
+  const ledgerDate = normalizedLedgerDate.isoDate ?? "";
   const customerCode = getText(rawRowJson, customerCodeKeys) || null;
   const customerName = getText(rawRowJson, customerNameKeys) || null;
   const productName = getText(rawRowJson, productNameKeys) || null;
@@ -82,6 +106,7 @@ export function normalizeLedgerRow(input: {
   const receiptDiscount = getNumber(rawRowJson, receiptDiscountKeys);
   const arValue = getNullableNumber(rawRowJson, arBalanceKeys);
   const errors: string[] = [];
+  if (!normalizedLedgerDate.ok) errors.push(ledgerDateErrorCode(normalizedLedgerDate.reason));
 
   if (rowType === "unknown") errors.push("분류할 수 없는 행입니다.");
   if ((rowType === "item_detail" || rowType === "customer_total" || rowType === "receipt") && !customerName) {
@@ -114,6 +139,10 @@ export function normalizeLedgerRow(input: {
     rowType,
     partCode: input.partCode,
     ledgerDate,
+    ledgerDateFormatCategory: normalizedLedgerDate.formatCategory,
+    ledgerDateWasNormalized: normalizedLedgerDate.ok ? normalizedLedgerDate.changedToIso : false,
+    ledgerDateWasCarriedForward,
+    ledgerDateIssue: normalizedLedgerDate.ok ? null : normalizedLedgerDate.reason,
     customerCode,
     customerName,
     productName,
@@ -181,6 +210,27 @@ function getText(row: LedgerRawRow, keys: string[]) {
     }
   }
   return "";
+}
+
+function shouldCarryForwardLedgerDate(rowType: LedgerRowType, reason: LedgerDateIssue | null) {
+  if (reason !== "missing" && reason !== "invalid") return false;
+  return rowType === "item_detail" || rowType === "customer_total" || rowType === "receipt";
+}
+
+function getValue(row: LedgerRawRow, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return value;
+    }
+  }
+  return null;
+}
+
+function ledgerDateErrorCode(reason: LedgerDateIssue) {
+  if (reason === "missing") return "MISSING_LEDGER_DATE";
+  if (reason === "invalid") return "INVALID_LEDGER_DATE";
+  return "LEDGER_DATE_OUT_OF_SCOPE";
 }
 
 function getNumber(row: LedgerRawRow, keys: string[]) {

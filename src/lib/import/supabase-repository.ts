@@ -296,6 +296,7 @@ export class SupabaseImportRepository implements ImportRepository {
     const rowsToInsert = input.selectedRows.map((selection) => {
       const rowWithSyncHashes = {
         ...selection.row,
+        ledgerDate: selection.syncRow.ledgerDate,
         identityHash: selection.identityHash,
         contentHash: selection.contentHash,
       };

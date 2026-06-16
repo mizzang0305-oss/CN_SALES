@@ -24,6 +24,9 @@ export type RowIssueReason =
   | "REPEATED_HEADER"
   | "SUBTOTAL_ROW"
   | "NON_TRANSACTION_ROW"
+  | "MISSING_LEDGER_DATE"
+  | "INVALID_LEDGER_DATE"
+  | "LEDGER_DATE_OUT_OF_SCOPE"
   | "MISSING_CUSTOMER"
   | "MISSING_PRODUCT"
   | "INVALID_REQUIRED_FIELD";
@@ -35,6 +38,18 @@ export interface ParsedLedgerRow {
   rowType: LedgerRowType;
   partCode: string;
   ledgerDate: string;
+  ledgerDateFormatCategory?:
+    | "yyyy-mm-dd"
+    | "yyyy.m.d"
+    | "yyyy/mm/dd"
+    | "m/d/yyyy"
+    | "excel-serial"
+    | "korean-date"
+    | "datetime"
+    | "unknown";
+  ledgerDateWasNormalized?: boolean;
+  ledgerDateWasCarriedForward?: boolean;
+  ledgerDateIssue?: "missing" | "invalid" | "out-of-scope" | null;
   customerCode: string | null;
   customerName: string | null;
   productName: string | null;
