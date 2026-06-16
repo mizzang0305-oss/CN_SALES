@@ -29,6 +29,16 @@ export function classifyRowIssue(row: ParsedPreviewRow): RowIssue | null {
     };
   }
 
+  if (row.errors.includes("MISSING_LEDGER_DATE")) {
+    return { severity: "error", reason: "MISSING_LEDGER_DATE" };
+  }
+  if (row.errors.includes("INVALID_LEDGER_DATE")) {
+    return { severity: "error", reason: "INVALID_LEDGER_DATE" };
+  }
+  if (row.errors.includes("LEDGER_DATE_OUT_OF_SCOPE")) {
+    return { severity: "error", reason: "LEDGER_DATE_OUT_OF_SCOPE" };
+  }
+
   if ((row.rowType === "item_detail" || row.rowType === "customer_total" || row.rowType === "receipt") && !row.customerName) {
     return { severity: "error", reason: "MISSING_CUSTOMER" };
   }

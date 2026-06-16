@@ -3,9 +3,11 @@ import { createImportService, createPreviewOnlyImportService } from "@/lib/impor
 import {
   createLimitedApplySelectionDiagnostics,
   getLimitedApplyStageConfig,
+  inferLimitedApplyDiagnosticStage,
   isLimitedApplyStage,
   loadLimitedApplyApproval,
   selectLimitedApplyRows,
+  summarizeLimitedApplyDateDiagnostics,
   summarizeLimitedApplyDateGuard,
   validateLimitedApplyPreconditions,
 } from "@/lib/import/limited-apply";
@@ -94,8 +96,8 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const dryRun = getBoolean(formData, "dryRun");
     const approvalStage = getString(formData, "approvalStage");
-    const limitedApplyStage = isLimitedApplyStage(approvalStage) ? approvalStage : null;
-    const limitedApplyRequested = !dryRun && Boolean(limitedApplyStage);
+    const requestedLimitedApplyStage = isLimitedApplyStage(approvalStage) ? approvalStage : null;
+    const limitedApplyRequested = !dryRun && Boolean(requestedLimitedApplyStage);
     const requestPeriodStart = getString(formData, "periodStart");
     const requestPeriodEnd = getString(formData, "periodEnd");
     const effectivePeriodStart = requestPeriodStart || "2026-06-01";
@@ -221,11 +223,21 @@ export async function POST(request: Request) {
       },
     });
     const legacySchemaIdentityDiagnostics = summarizeDuplicateSyncKeys(legacyIncomingSyncRows);
-    const limitedApplyStageConfig = limitedApplyStage ? getLimitedApplyStageConfig(limitedApplyStage) : null;
+    const diagnosticLimitedApplyStage = requestedLimitedApplyStage ?? (dryRun ? inferLimitedApplyDiagnosticStage(syncDiff) : null);
+    const limitedApplyStageConfig = diagnosticLimitedApplyStage ? getLimitedApplyStageConfig(diagnosticLimitedApplyStage) : null;
+    const selectedRowsForDiagnostics =
+      diagnosticLimitedApplyStage && limitedApplyStageConfig
+        ? selectLimitedApplyRows({
+            rows: committableRows,
+            syncRows: incomingSyncRows,
+            existingRows: existingRead.rows,
+            maxRows: limitedApplyStageConfig.expectedMaxRows,
+          })
+        : null;
     const selectionDiagnostics =
-      limitedApplyStage && limitedApplyStageConfig
+      diagnosticLimitedApplyStage && limitedApplyStageConfig
         ? createLimitedApplySelectionDiagnostics({
-            stage: limitedApplyStage,
+            stage: diagnosticLimitedApplyStage,
             rows: committableRows,
             syncRows: incomingSyncRows,
             existingRows: existingRead.rows,
@@ -233,6 +245,12 @@ export async function POST(request: Request) {
             insertCandidates: syncDiff.diff.insertCandidates,
           })
         : null;
+    const dateDiagnostics = selectedRowsForDiagnostics
+      ? summarizeLimitedApplyDateDiagnostics(selectedRowsForDiagnostics, {
+          periodStart: syncScope.dateFrom,
+          periodEnd: syncScope.dateTo,
+        })
+      : null;
 
     if (dryRun) {
       return NextResponse.json({
@@ -285,10 +303,11 @@ export async function POST(request: Request) {
       scopeSource: syncScope.scopeSource,
       syncDiff,
       selectionDiagnostics,
+      dateDiagnostics,
       });
     }
 
-    const approvalValidation = await loadLimitedApplyApproval(limitedApplyStage ?? "G-6B");
+    const approvalValidation = await loadLimitedApplyApproval(requestedLimitedApplyStage ?? "G-6B");
     if (!approvalValidation.ok || !approvalValidation.approval) {
       return safeError(403, "LIMITED_APPLY_APPROVAL_BLOCKED", "Limited apply approval file is missing or invalid.", {
         dryRun: false,
@@ -346,12 +365,22 @@ export async function POST(request: Request) {
     }
 
     const limitedApplyDateGuard = summarizeLimitedApplyDateGuard(selectedRows);
-    if (limitedApplyDateGuard.nonIsoLedgerDateRows > 0 || limitedApplyDateGuard.missingLedgerDateRows > 0) {
+    const limitedApplyDateDiagnostics = summarizeLimitedApplyDateDiagnostics(selectedRows, {
+      periodStart: syncScope.dateFrom,
+      periodEnd: syncScope.dateTo,
+    });
+    if (
+      limitedApplyDateDiagnostics.nonIsoLedgerDateCandidates > 0 ||
+      limitedApplyDateDiagnostics.invalidLedgerDateCandidates > 0 ||
+      limitedApplyDateDiagnostics.missingLedgerDateCandidates > 0 ||
+      limitedApplyDateDiagnostics.dateOutsideScopeCandidates > 0
+    ) {
       return safeError(409, "LIMITED_APPLY_LEDGER_DATE_BLOCKED", "Limited apply selected rows contain invalid ledger dates.", {
         dryRun: false,
         actualApplyReady: false,
         actualApplyBlockedReason: "LIMITED_APPLY_LEDGER_DATE_BLOCKED",
         limitedApplyDateGuard,
+        dateDiagnostics: limitedApplyDateDiagnostics,
       });
     }
 
@@ -420,6 +449,7 @@ export async function POST(request: Request) {
       },
       scopeSource: syncScope.scopeSource,
       limitedApplyDateGuard,
+      dateDiagnostics: limitedApplyDateDiagnostics,
       readBack: {
         rowCount: result.readBackRows.length,
         matchesRequestedRows: readBackVerification.matchesRequestedRows,

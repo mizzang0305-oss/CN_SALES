@@ -1,5 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  createEmptyLedgerDateFormatCounts,
+  isCanonicalLedgerDate,
+  normalizeLedgerDate,
+  type LedgerDateFormatCategory,
+} from "@/lib/import/ledger-date-normalization";
 import { stableHash } from "@/lib/ledger/hash";
 import type { LedgerSyncDiffPlan, LedgerSyncScope } from "@/lib/import/sync-diff";
 import type { LedgerSyncRow } from "@/lib/import/sync-key";
@@ -149,6 +155,19 @@ export interface LimitedApplySelectionDiagnostics {
   rawRowsReturned: false;
 }
 
+export interface LimitedApplyDateDiagnostics {
+  checkedRows: number;
+  canonicalIsoLedgerDateCount: number;
+  nonIsoLedgerDateCandidates: number;
+  invalidLedgerDateCandidates: number;
+  missingLedgerDateCandidates: number;
+  dateOutsideScopeCandidates: number;
+  parseableNonIsoCount: number;
+  normalizedToIsoCount: number;
+  formatCategories: Record<LedgerDateFormatCategory, number>;
+  rawRowsReturned: false;
+}
+
 export async function loadLimitedApplyApproval(
   stage: LimitedApplyStage = "G-6B",
 ): Promise<LimitedApplyApprovalValidation> {
@@ -261,6 +280,17 @@ export function createLimitedApplySelectionDiagnostics(input: {
   };
 }
 
+export function inferLimitedApplyDiagnosticStage(syncDiff: LedgerSyncDiffPlan): LimitedApplyStage | null {
+  const match = Object.values(limitedApplyStageConfigs).find((config) => (
+    syncDiff.existing.scopedRows === config.expectedExistingScopedRows &&
+    syncDiff.diff.insertCandidates === config.expectedInsertCandidates &&
+    syncDiff.diff.noChangeRows === config.expectedNoChangeRows &&
+    syncDiff.diff.updateCandidates === 0 &&
+    syncDiff.diff.deleteCandidates === 0
+  ));
+  return match?.stage ?? null;
+}
+
 export function summarizeLimitedApplyDateGuard(selectedRows: LimitedApplyRowSelection[]) {
   return selectedRows.reduce(
     (summary, selection) => {
@@ -275,6 +305,58 @@ export function summarizeLimitedApplyDateGuard(selectedRows: LimitedApplyRowSele
       missingLedgerDateRows: 0,
     },
   );
+}
+
+export function summarizeLimitedApplyDateDiagnostics(
+  selectedRows: LimitedApplyRowSelection[],
+  scope: { periodStart?: string; periodEnd?: string } = {},
+): LimitedApplyDateDiagnostics {
+  const summary: LimitedApplyDateDiagnostics = {
+    checkedRows: 0,
+    canonicalIsoLedgerDateCount: 0,
+    nonIsoLedgerDateCandidates: 0,
+    invalidLedgerDateCandidates: 0,
+    missingLedgerDateCandidates: 0,
+    dateOutsideScopeCandidates: 0,
+    parseableNonIsoCount: 0,
+    normalizedToIsoCount: 0,
+    formatCategories: createEmptyLedgerDateFormatCounts(),
+    rawRowsReturned: false,
+  };
+
+  for (const selection of selectedRows) {
+    const row = selection.row;
+    const normalized = normalizeLedgerDate(row.ledgerDate, scope);
+    const issue = row.ledgerDateIssue ?? (normalized.ok ? null : normalized.reason);
+    const category = knownFormatCategory(row.ledgerDateFormatCategory) ? row.ledgerDateFormatCategory : normalized.formatCategory;
+    const rowDateIsCanonical = Boolean(row.ledgerDate && isCanonicalLedgerDate(row.ledgerDate));
+    const syncDateIsCanonical = isCanonicalLedgerDate(selection.syncRow.ledgerDate);
+
+    summary.checkedRows += 1;
+    summary.formatCategories[category] += 1;
+
+    if (!row.ledgerDate) {
+      summary.missingLedgerDateCandidates += 1;
+    } else if (!rowDateIsCanonical) {
+      summary.nonIsoLedgerDateCandidates += 1;
+    }
+
+    const syncDateInvalid = !syncDateIsCanonical || (rowDateIsCanonical && row.ledgerDate !== selection.syncRow.ledgerDate);
+    if (issue === "missing") summary.missingLedgerDateCandidates += row.ledgerDate ? 1 : 0;
+    if (issue === "invalid" || syncDateInvalid) {
+      summary.invalidLedgerDateCandidates += 1;
+    }
+    if (issue === "out-of-scope") summary.dateOutsideScopeCandidates += 1;
+    if (rowDateIsCanonical && syncDateIsCanonical && row.ledgerDate === selection.syncRow.ledgerDate && !issue) {
+      summary.canonicalIsoLedgerDateCount += 1;
+    }
+    if (row.ledgerDateWasNormalized) {
+      summary.parseableNonIsoCount += 1;
+      if (rowDateIsCanonical && !issue) summary.normalizedToIsoCount += 1;
+    }
+  }
+
+  return summary;
 }
 
 export function validateLimitedApplyPreconditions(input: {
@@ -365,6 +447,19 @@ function digestSelection(rows: LimitedApplyRowSelection[], mode: "identity" | "o
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function knownFormatCategory(value: unknown): value is LedgerDateFormatCategory {
+  return (
+    value === "yyyy-mm-dd" ||
+    value === "yyyy.m.d" ||
+    value === "yyyy/mm/dd" ||
+    value === "m/d/yyyy" ||
+    value === "excel-serial" ||
+    value === "korean-date" ||
+    value === "datetime" ||
+    value === "unknown"
+  );
 }
 
 function isIsoDate(value: string) {

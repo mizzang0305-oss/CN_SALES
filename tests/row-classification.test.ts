@@ -36,7 +36,7 @@ describe("upload row issue classification", () => {
 
   it("classifies missing required customer names as error rows", () => {
     const rows: LedgerRawRow[] = [
-      { row_type: "item_detail", product_name: "Synthetic Product", quantity: 1, unit_price: 1000, sales_amount: 1000 },
+      { date: "2026-06-01", row_type: "item_detail", product_name: "Synthetic Product", quantity: 1, unit_price: 1000, sales_amount: 1000 },
     ];
     const parsed = parseLedgerRows({ rows, partCode: "11", periodStart: "2026-06-01", periodEnd: "2026-06-06" });
     const summary = summarizePreview({

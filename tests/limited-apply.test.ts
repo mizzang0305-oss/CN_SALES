@@ -5,6 +5,7 @@ import {
   getLimitedApplyStageConfig,
   isLimitedApplyStage,
   selectLimitedApplyRows,
+  summarizeLimitedApplyDateDiagnostics,
   summarizeLimitedApplyDateGuard,
   validateLimitedApplyApproval,
   validateLimitedApplyPreconditions,
@@ -428,7 +429,7 @@ describe("limited apply approval gate", () => {
     expect(selected.map((item) => item.identityHash)).toEqual(["identity-a", "identity-c"]);
   });
 
-  it("keeps non-ISO ledger dates in selection so the explicit date guard can block them", () => {
+  it("blocks noncanonical selected ledger dates at the explicit date guard", () => {
     const selected = selectLimitedApplyRows({
       rows: [row(1, "not-a-date"), row(2, "2026-06-01"), row(3, "2026-06-02")],
       syncRows: [syncRow(1), syncRow(2), syncRow(3)],
@@ -438,6 +439,50 @@ describe("limited apply approval gate", () => {
 
     expect(selected).toHaveLength(3);
     expect(summarizeLimitedApplyDateGuard(selected)).toMatchObject({ checkedRows: 3, nonIsoLedgerDateRows: 1 });
+  });
+
+  it("summarizes final G-6I selected dates as canonical ISO without exposing raw rows", () => {
+    const rows = Array.from({ length: 2119 }, (_, index) => {
+      const isFinalWindow = index >= 1633;
+      const normalizedFromNonIso = isFinalWindow && index < 1818;
+      return row(index + 1, "2026-06-02", normalizedFromNonIso
+        ? { ledgerDateFormatCategory: "yyyy.m.d", ledgerDateWasNormalized: true }
+        : { ledgerDateFormatCategory: "yyyy-mm-dd", ledgerDateWasNormalized: false });
+    });
+    const syncRows = Array.from({ length: 2119 }, (_, index) => syncRow(index + 1));
+    const existingRows = Array.from({ length: 1633 }, (_, index) => syncRow(index + 1));
+    const selected = selectLimitedApplyRows({
+      rows,
+      syncRows,
+      existingRows,
+      maxRows: 486,
+    });
+
+    expect(selected).toHaveLength(486);
+    expect(summarizeLimitedApplyDateDiagnostics(selected, {
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-06",
+    })).toEqual({
+      checkedRows: 486,
+      canonicalIsoLedgerDateCount: 486,
+      nonIsoLedgerDateCandidates: 0,
+      invalidLedgerDateCandidates: 0,
+      missingLedgerDateCandidates: 0,
+      dateOutsideScopeCandidates: 0,
+      parseableNonIsoCount: 185,
+      normalizedToIsoCount: 185,
+      formatCategories: {
+        "yyyy-mm-dd": 301,
+        "yyyy.m.d": 185,
+        "yyyy/mm/dd": 0,
+        "m/d/yyyy": 0,
+        "excel-serial": 0,
+        "korean-date": 0,
+        datetime: 0,
+        unknown: 0,
+      },
+      rawRowsReturned: false,
+    });
   });
 
   it("creates digest-only G-6I diagnostics that align dry-run candidates with selector output", () => {
@@ -847,7 +892,7 @@ describe("limited apply approval gate", () => {
 
 });
 
-function row(rowIndex: number, ledgerDate = "2026-06-02"): ParsedLedgerRow {
+function row(rowIndex: number, ledgerDate = "2026-06-02", overrides: Partial<ParsedLedgerRow> = {}): ParsedLedgerRow {
   const parsed = {
     rowIndex,
     rowType: "item_detail",
@@ -865,7 +910,10 @@ function row(rowIndex: number, ledgerDate = "2026-06-02"): ParsedLedgerRow {
     identityHash: `legacy-${rowIndex}`,
     contentHash: `legacy-content-${rowIndex}`,
     errors: [],
+    ledgerDateFormatCategory: "yyyy-mm-dd",
+    ledgerDateWasNormalized: false,
   } as ParsedLedgerRow;
+  Object.assign(parsed, overrides);
   Object.assign(parsed, { ["raw" + "Row" + "Json"]: {} });
   return parsed;
 }

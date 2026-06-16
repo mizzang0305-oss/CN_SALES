@@ -120,6 +120,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(methodSource).toContain('.from("ledger_uploads")');
     expect(methodSource).toContain('.from("ledger_rows")');
     expect(methodSource).toContain(".insert(");
+    expect(methodSource).toContain("ledgerDate: selection.syncRow.ledgerDate");
     expect(methodSource).toContain('.eq("upload_id", upload.id)');
     expect(methodSource).toContain(".range(0, readBackRangeEnd)");
     expect(methodSource).toContain("normalizedTableWrite: false");
