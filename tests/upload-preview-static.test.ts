@@ -103,6 +103,8 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).toContain("createPreviewChecksum");
     expect(confirmRouteSource).toContain("createLedgerSyncRows");
     expect(confirmRouteSource).toContain("legacySchemaIdentityDiagnostics");
+    expect(confirmRouteSource).toContain("selectionDiagnostics");
+    expect(confirmRouteSource).toContain("createLimitedApplySelectionDiagnostics");
     expect(confirmRouteSource).toContain("natural_occurrence_v2");
     expect(confirmRouteSource).not.toContain("confirmPreview");
     expect(confirmRouteSource).not.toContain("error.message");

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createImportService, createPreviewOnlyImportService } from "@/lib/import/service-factory";
 import {
+  createLimitedApplySelectionDiagnostics,
+  getLimitedApplyStageConfig,
   isLimitedApplyStage,
   loadLimitedApplyApproval,
   selectLimitedApplyRows,
@@ -219,6 +221,18 @@ export async function POST(request: Request) {
       },
     });
     const legacySchemaIdentityDiagnostics = summarizeDuplicateSyncKeys(legacyIncomingSyncRows);
+    const limitedApplyStageConfig = limitedApplyStage ? getLimitedApplyStageConfig(limitedApplyStage) : null;
+    const selectionDiagnostics =
+      limitedApplyStage && limitedApplyStageConfig
+        ? createLimitedApplySelectionDiagnostics({
+            stage: limitedApplyStage,
+            rows: committableRows,
+            syncRows: incomingSyncRows,
+            existingRows: existingRead.rows,
+            maxRows: limitedApplyStageConfig.expectedMaxRows,
+            insertCandidates: syncDiff.diff.insertCandidates,
+          })
+        : null;
 
     if (dryRun) {
       return NextResponse.json({
@@ -270,6 +284,7 @@ export async function POST(request: Request) {
       approvalScope: null,
       scopeSource: syncScope.scopeSource,
       syncDiff,
+      selectionDiagnostics,
       });
     }
 
