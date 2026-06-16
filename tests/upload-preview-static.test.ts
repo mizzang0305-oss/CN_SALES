@@ -9,6 +9,7 @@ const confirmRouteSource = readFileSync(join(process.cwd(), "src", "app", "api",
 const serviceFactorySource = readFileSync(join(process.cwd(), "src", "lib", "import", "service-factory.ts"), "utf8");
 const supabaseRepositorySource = readFileSync(join(process.cwd(), "src", "lib", "import", "supabase-repository.ts"), "utf8");
 const limitedApplySource = readFileSync(join(process.cwd(), "src", "lib", "import", "limited-apply.ts"), "utf8");
+const finalSyncVerificationSource = readFileSync(join(process.cwd(), "src", "lib", "import", "final-sync-verification.ts"), "utf8");
 const pythonParserSource = readFileSync(join(process.cwd(), "src", "lib", "import", "python-parser.ts"), "utf8");
 
 describe("upload preview safety and part mismatch guards", () => {
@@ -107,7 +108,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).not.toContain("error.message");
   });
 
-  it("keeps G-6B/G-6D/G-6E/G-6F/G-6G limited apply on insert-only ledger row persistence", () => {
+  it("keeps G-6B/G-6D/G-6E/G-6F/G-6G/G-6H/G-6I limited apply on insert-only ledger row persistence", () => {
     const methodStart = supabaseRepositorySource.indexOf("async limitedInsertLedgerRows");
     const methodEnd = supabaseRepositorySource.indexOf("async getDashboardTotals", methodStart);
     const methodSource = supabaseRepositorySource.slice(methodStart, methodEnd);
@@ -151,6 +152,40 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(limitedApplySource).toContain("requireExplicitRequestScope");
     expect(limitedApplySource).toContain("REQUEST_PERIOD_SCOPE_REQUIRED");
     expect(limitedApplySource).toContain("REQUEST_SCOPE_DATE_MISMATCH");
+  });
+
+  it("keeps G-6H configured as a max-500 explicit limited apply stage", () => {
+    expect(limitedApplySource).toContain('"G-6H"');
+    expect(limitedApplySource).toContain("g6h_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("expectedMaxRows: 500");
+    expect(limitedApplySource).toContain("expectedExistingScopedRows: 1133");
+    expect(limitedApplySource).toContain("expectedInsertCandidates: 986");
+    expect(limitedApplySource).toContain("expectedNoChangeRows: 1133");
+    expect(limitedApplySource).toContain("requiresExplicitPeriod: true");
+  });
+
+  it("keeps G-6I configured as a final max-486 explicit limited apply stage", () => {
+    expect(limitedApplySource).toContain('"G-6I"');
+    expect(limitedApplySource).toContain("g6i_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("expectedMaxRows: 486");
+    expect(limitedApplySource).toContain("expectedExistingScopedRows: 1633");
+    expect(limitedApplySource).toContain("expectedInsertCandidates: 486");
+    expect(limitedApplySource).toContain("expectedNoChangeRows: 1633");
+    expect(limitedApplySource).toContain("requiresExplicitPeriod: true");
+  });
+
+  it("keeps final sync verification aggregate-only and write-free", () => {
+    expect(finalSyncVerificationSource).toContain("finalSyncExpectedState");
+    expect(finalSyncVerificationSource).toContain("normalRows: 2119");
+    expect(finalSyncVerificationSource).toContain("excludedRows: 275");
+    expect(finalSyncVerificationSource).toContain("existingScopedRows: 2119");
+    expect(finalSyncVerificationSource).toContain("insertCandidates: 0");
+    expect(finalSyncVerificationSource).toContain("updateCandidates: 0");
+    expect(finalSyncVerificationSource).toContain("deleteCandidates: 0");
+    expect(finalSyncVerificationSource).toContain("noChangeRows: 2119");
+    expect(finalSyncVerificationSource).toContain("sourceRowsIncluded: false");
+    expect(finalSyncVerificationSource).toContain("dbWriteRequired: false");
+    expect(finalSyncVerificationSource).not.toMatch(/insert\(|upsert\(|update\(|delete\(|rpc\(/);
   });
 
   it("keeps preview-only service separate from Supabase preview persistence", () => {

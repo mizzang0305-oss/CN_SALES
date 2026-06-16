@@ -7,7 +7,7 @@ import type { ParsedLedgerRow } from "@/lib/types";
 export const G6B_EXPECTED_SOURCE_FILE_HASH =
   "sha256:37e0833cf4329d08c7ee4093e4807712bd41c30149a344b8db440e1cb5472ca0";
 
-export type LimitedApplyStage = "G-6B" | "G-6D" | "G-6E" | "G-6F" | "G-6G";
+export type LimitedApplyStage = "G-6B" | "G-6D" | "G-6E" | "G-6F" | "G-6G" | "G-6H" | "G-6I";
 
 export interface LimitedApplyStageConfig {
   stage: LimitedApplyStage;
@@ -16,6 +16,7 @@ export interface LimitedApplyStageConfig {
   expectedExistingScopedRows: number;
   expectedInsertCandidates: number;
   expectedNoChangeRows: number;
+  requiresExplicitPeriod: boolean;
 }
 
 export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplyStageConfig> = {
@@ -26,6 +27,7 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedExistingScopedRows: 0,
     expectedInsertCandidates: 2119,
     expectedNoChangeRows: 0,
+    requiresExplicitPeriod: false,
   },
   "G-6D": {
     stage: "G-6D",
@@ -34,6 +36,7 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedExistingScopedRows: 3,
     expectedInsertCandidates: 2116,
     expectedNoChangeRows: 3,
+    requiresExplicitPeriod: false,
   },
   "G-6E": {
     stage: "G-6E",
@@ -42,6 +45,7 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedExistingScopedRows: 33,
     expectedInsertCandidates: 2086,
     expectedNoChangeRows: 33,
+    requiresExplicitPeriod: false,
   },
   "G-6F": {
     stage: "G-6F",
@@ -50,6 +54,7 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedExistingScopedRows: 133,
     expectedInsertCandidates: 1986,
     expectedNoChangeRows: 133,
+    requiresExplicitPeriod: true,
   },
   "G-6G": {
     stage: "G-6G",
@@ -58,8 +63,37 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedExistingScopedRows: 633,
     expectedInsertCandidates: 1486,
     expectedNoChangeRows: 633,
+    requiresExplicitPeriod: true,
+  },
+  "G-6H": {
+    stage: "G-6H",
+    approvalFileName: "g6h_limited_apply_approval.json",
+    expectedMaxRows: 500,
+    expectedExistingScopedRows: 1133,
+    expectedInsertCandidates: 986,
+    expectedNoChangeRows: 1133,
+    requiresExplicitPeriod: true,
+  },
+  "G-6I": {
+    stage: "G-6I",
+    approvalFileName: "g6i_limited_apply_approval.json",
+    expectedMaxRows: 486,
+    expectedExistingScopedRows: 1633,
+    expectedInsertCandidates: 486,
+    expectedNoChangeRows: 1633,
+    requiresExplicitPeriod: true,
   },
 };
+
+export const LIMITED_APPLY_STAGE_POLICIES = Object.fromEntries(
+  Object.entries(limitedApplyStageConfigs).map(([stage, config]) => [
+    stage,
+    {
+      maxRows: config.expectedMaxRows,
+      requiresExplicitPeriod: config.requiresExplicitPeriod,
+    },
+  ]),
+) as Record<LimitedApplyStage, { maxRows: number; requiresExplicitPeriod: boolean }>;
 
 export interface LimitedApplyApproval {
   stage: LimitedApplyStage;
@@ -261,7 +295,7 @@ function isIsoDate(value: string) {
 }
 
 export function isLimitedApplyStage(value: string): value is LimitedApplyStage {
-  return value === "G-6B" || value === "G-6D" || value === "G-6E" || value === "G-6F" || value === "G-6G";
+  return value in limitedApplyStageConfigs;
 }
 
 export function getLimitedApplyStageConfig(stage: unknown): LimitedApplyStageConfig | null {
