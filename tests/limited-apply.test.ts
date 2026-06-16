@@ -63,6 +63,17 @@ const g6fApproval = {
   },
 };
 
+const g6gApproval = {
+  ...baseApproval,
+  stage: "G-6G",
+  max_rows: 500,
+  source_preview: {
+    existingScopedRows: 633,
+    insertCandidates: 1486,
+    noChangeRows: 633,
+  },
+};
+
 describe("limited apply approval gate", () => {
   it("recognizes G-6F as a configured limited apply stage", () => {
     expect(isLimitedApplyStage("G-6F")).toBe(true);
@@ -72,6 +83,18 @@ describe("limited apply approval gate", () => {
       expectedExistingScopedRows: 133,
       expectedInsertCandidates: 1986,
       expectedNoChangeRows: 133,
+    });
+  });
+
+  it("recognizes G-6G as the next max-500 limited apply stage", () => {
+    expect(isLimitedApplyStage("G-6G")).toBe(true);
+    expect(getLimitedApplyStageConfig("G-6G")).toMatchObject({
+      stage: "G-6G",
+      approvalFileName: "g6g_limited_apply_approval.json",
+      expectedMaxRows: 500,
+      expectedExistingScopedRows: 633,
+      expectedInsertCandidates: 1486,
+      expectedNoChangeRows: 633,
     });
   });
 
@@ -107,6 +130,14 @@ describe("limited apply approval gate", () => {
     });
   });
 
+  it("accepts the G-6G max-500 insert-only approval shape", () => {
+    expect(validateLimitedApplyApproval(g6gApproval)).toEqual({
+      ok: true,
+      blockedReasons: [],
+      approval: g6gApproval,
+    });
+  });
+
   it("blocks G-6F approvals when maxRows is not exactly 500", () => {
     const belowLimit = validateLimitedApplyApproval({
       ...g6fApproval,
@@ -114,6 +145,22 @@ describe("limited apply approval gate", () => {
     });
     const aboveLimit = validateLimitedApplyApproval({
       ...g6fApproval,
+      max_rows: 501,
+    });
+
+    expect(belowLimit.ok).toBe(false);
+    expect(belowLimit.blockedReasons).toContain("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
+    expect(aboveLimit.ok).toBe(false);
+    expect(aboveLimit.blockedReasons).toContain("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
+  });
+
+  it("blocks G-6G approvals when maxRows is not exactly 500", () => {
+    const belowLimit = validateLimitedApplyApproval({
+      ...g6gApproval,
+      max_rows: 499,
+    });
+    const aboveLimit = validateLimitedApplyApproval({
+      ...g6gApproval,
       max_rows: 501,
     });
 
@@ -212,6 +259,22 @@ describe("limited apply approval gate", () => {
     expect(selected).toHaveLength(500);
     expect(selected[0]?.row.rowIndex).toBe(134);
     expect(selected.at(-1)?.row.rowIndex).toBe(633);
+  });
+
+  it("selects five hundred G-6G insert candidates while skipping already-present sync keys", () => {
+    const rows = Array.from({ length: 1200 }, (_, index) => row(index + 1));
+    const syncRows = Array.from({ length: 1200 }, (_, index) => syncRow(index + 1));
+    const existingRows = Array.from({ length: 633 }, (_, index) => syncRow(index + 1));
+    const selected = selectLimitedApplyRows({
+      rows,
+      syncRows,
+      existingRows,
+      maxRows: 500,
+    });
+
+    expect(selected).toHaveLength(500);
+    expect(selected[0]?.row.rowIndex).toBe(634);
+    expect(selected.at(-1)?.row.rowIndex).toBe(1133);
   });
 
   it("skips non-ISO ledger dates when choosing limited apply rows", () => {
@@ -317,6 +380,31 @@ describe("limited apply approval gate", () => {
     });
   });
 
+  it("allows G-6G when the pre-apply diff matches the expected post-G-6F state", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6gApproval,
+      sourceFileHash: g6gApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 633,
+        insertCandidates: 1486,
+        noChangeRows: 633,
+      }),
+      requestScope: {
+        partCode: "11",
+        dateFrom: "2026-06-01",
+        dateTo: "2026-06-06",
+        scopeSource: "explicit-request",
+      },
+      requireExplicitRequestScope: true,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      blockedReasons: [],
+    });
+  });
+
   it("blocks G-6F without an explicit request period scope", () => {
     const result = validateLimitedApplyPreconditions({
       approval: g6fApproval,
@@ -326,6 +414,29 @@ describe("limited apply approval gate", () => {
         existingScopedRows: 133,
         insertCandidates: 1986,
         noChangeRows: 133,
+      }),
+      requestScope: {
+        partCode: "11",
+        dateFrom: "2026-06-01",
+        dateTo: "2026-06-06",
+        scopeSource: "derived",
+      },
+      requireExplicitRequestScope: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockedReasons).toContain("REQUEST_PERIOD_SCOPE_REQUIRED");
+  });
+
+  it("blocks G-6G without an explicit request period scope", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6gApproval,
+      sourceFileHash: g6gApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 633,
+        insertCandidates: 1486,
+        noChangeRows: 633,
       }),
       requestScope: {
         partCode: "11",
@@ -372,6 +483,31 @@ describe("limited apply approval gate", () => {
         existingScopedRows: 133,
         insertCandidates: 1986,
         noChangeRows: 133,
+        updateCandidates: 1,
+        deleteCandidates: 1,
+        warningRows: 1,
+        errorRows: 1,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockedReasons).toEqual(expect.arrayContaining([
+      "UPDATE_CANDIDATE_PRESENT",
+      "DELETE_CANDIDATE_PRESENT",
+      "WARNING_ROWS_PRESENT",
+      "ERROR_ROWS_PRESENT",
+    ]));
+  });
+
+  it("blocks G-6G when update, delete, warning, or error rows appear before write", () => {
+    const result = validateLimitedApplyPreconditions({
+      approval: g6gApproval,
+      sourceFileHash: g6gApproval.test_file_hash,
+      selectedPartCode: "11",
+      syncDiff: diffPlan({
+        existingScopedRows: 633,
+        insertCandidates: 1486,
+        noChangeRows: 633,
         updateCandidates: 1,
         deleteCandidates: 1,
         warningRows: 1,

@@ -107,7 +107,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).not.toContain("error.message");
   });
 
-  it("keeps G-6B/G-6D/G-6E/G-6F limited apply on insert-only ledger row persistence", () => {
+  it("keeps G-6B/G-6D/G-6E/G-6F/G-6G limited apply on insert-only ledger row persistence", () => {
     const methodStart = supabaseRepositorySource.indexOf("async limitedInsertLedgerRows");
     const methodEnd = supabaseRepositorySource.indexOf("async getDashboardTotals", methodStart);
     const methodSource = supabaseRepositorySource.slice(methodStart, methodEnd);
@@ -136,6 +136,18 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(limitedApplySource).toContain("expectedExistingScopedRows: 133");
     expect(limitedApplySource).toContain("expectedInsertCandidates: 1986");
     expect(limitedApplySource).toContain("expectedNoChangeRows: 133");
+    expect(limitedApplySource).toContain("requireExplicitRequestScope");
+    expect(limitedApplySource).toContain("REQUEST_PERIOD_SCOPE_REQUIRED");
+    expect(limitedApplySource).toContain("REQUEST_SCOPE_DATE_MISMATCH");
+  });
+
+  it("keeps G-6G configured as a max-500 explicit limited apply stage", () => {
+    expect(limitedApplySource).toContain('"G-6G"');
+    expect(limitedApplySource).toContain("g6g_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("expectedMaxRows: 500");
+    expect(limitedApplySource).toContain("expectedExistingScopedRows: 633");
+    expect(limitedApplySource).toContain("expectedInsertCandidates: 1486");
+    expect(limitedApplySource).toContain("expectedNoChangeRows: 633");
     expect(limitedApplySource).toContain("requireExplicitRequestScope");
     expect(limitedApplySource).toContain("REQUEST_PERIOD_SCOPE_REQUIRED");
     expect(limitedApplySource).toContain("REQUEST_SCOPE_DATE_MISMATCH");
