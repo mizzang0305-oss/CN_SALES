@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LimitedApplyRowSelection, LimitedApplyStage } from "@/lib/import/limited-apply";
 import { createNormalizedRows } from "@/lib/import/normalization";
 import { isCommittablePreviewRow } from "@/lib/import/row-classification";
+import type { LimitedApplyReadBackRow } from "@/lib/import/readback-verification";
 import { classifyUsageStatus, defaultPartName, normalizeMasterName } from "@/lib/import/master-data";
 import type { ConfirmResult, DashboardTotals, ImportPreviewRecord, ImportRepository } from "@/lib/import/types";
 import type { ParsedLedgerRow } from "@/lib/types";
@@ -17,20 +18,12 @@ export interface LimitedInsertLedgerRowsResult {
   importBatchId: string;
   createdAt: string;
   committedAt: string;
+  partId: string;
   insertedRows: number;
   updatedRows: 0;
   deletedRows: 0;
   normalizedTableWrite: false;
-  readBackRows: Array<{
-    id: string;
-    upload_id: string;
-    part_id: string;
-    row_index: number;
-    ledger_date: string;
-    row_type: string;
-    identity_hash: string;
-    content_hash: string;
-  }>;
+  readBackRows: LimitedApplyReadBackRow[];
 }
 
 export class SupabaseImportRepository implements ImportRepository {
@@ -309,24 +302,25 @@ export class SupabaseImportRepository implements ImportRepository {
       return this.toLedgerRowInsert(rowWithSyncHashes, context.companyId, upload.id, partId, null, null);
     });
 
-    const { data: inserted, error: insertError } = await this.db()
+    const { error: insertError } = await this.db()
       .from("ledger_rows")
-      .insert(rowsToInsert)
-      .select("id, upload_id, part_id, row_index, ledger_date, row_type, identity_hash, content_hash");
+      .insert(rowsToInsert);
     if (insertError) throw new Error(`LIMITED_APPLY_LEDGER_INSERT_FAILED:${insertError.code ?? "UNKNOWN"}`);
 
-    const insertedIds = (inserted ?? []).map((row) => row.id as string);
+    const readBackRangeEnd = Math.max(0, rowsToInsert.length - 1);
     const { data: readBackRows, error: readBackError } = await this.db()
       .from("ledger_rows")
       .select("id, upload_id, part_id, row_index, ledger_date, row_type, identity_hash, content_hash")
-      .in("id", insertedIds)
-      .order("row_index", { ascending: true });
+      .eq("upload_id", upload.id)
+      .order("row_index", { ascending: true })
+      .range(0, readBackRangeEnd);
     if (readBackError) throw new Error(`LIMITED_APPLY_READBACK_FAILED:${readBackError.code ?? "UNKNOWN"}`);
 
     return {
       importBatchId: upload.id as string,
       createdAt: String(upload.created_at ?? committedAt),
       committedAt: String(upload.committed_at ?? committedAt),
+      partId,
       insertedRows: readBackRows?.length ?? 0,
       updatedRows: 0,
       deletedRows: 0,

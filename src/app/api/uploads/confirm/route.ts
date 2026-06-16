@@ -9,6 +9,7 @@ import {
 } from "@/lib/import/limited-apply";
 import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-data";
 import { createPreviewChecksum, hashUploadFile, toOperationalPreviewSummary } from "@/lib/import/preview-checksum";
+import { verifyLimitedApplyReadBack } from "@/lib/import/readback-verification";
 import { isCommittablePreviewRow } from "@/lib/import/row-classification";
 import { SupabaseImportRepository } from "@/lib/import/supabase-repository";
 import { readExistingLedgerRowsForSync } from "@/lib/import/sync-existing-reader";
@@ -368,11 +369,19 @@ export async function POST(request: Request) {
       },
     });
 
-    const expectedIdentityHashes = new Set(selectedRows.map((row) => row.identityHash));
-    const readBackIdentityHashes = new Set(result.readBackRows.map((row) => row.identity_hash));
-    const readBackMatches =
-      result.insertedRows === approvalValidation.approval.max_rows &&
-      [...expectedIdentityHashes].every((hash) => readBackIdentityHashes.has(hash));
+    const readBackVerification = verifyLimitedApplyReadBack({
+      requestedRows: approvalValidation.approval.max_rows,
+      readBackRows: result.readBackRows,
+      expectedIdentityHashes: selectedRows.map((row) => row.identityHash),
+      expectedPartId: result.partId,
+      periodStart: syncScope.dateFrom,
+      periodEnd: syncScope.dateTo,
+      auditStatusPresent: Boolean(result.importBatchId && result.committedAt),
+      normalizedTableWrite: result.normalizedTableWrite,
+    });
+    if (!readBackVerification.ok) {
+      throw new Error(`LIMITED_APPLY_READBACK_FAILED:${readBackVerification.blockedReasons.join(",") || "MISMATCH"}`);
+    }
 
     return NextResponse.json({
       ok: true,
@@ -397,11 +406,16 @@ export async function POST(request: Request) {
       limitedApplyDateGuard,
       readBack: {
         rowCount: result.readBackRows.length,
-        matchesRequestedRows: result.readBackRows.length === approvalValidation.approval.max_rows,
-        identityHashMatch: readBackMatches,
-        contentHashPresent: result.readBackRows.every((row) => Boolean(row.content_hash)),
-        selectedColumnsOnly: true,
-        selectStarUsed: false,
+        matchesRequestedRows: readBackVerification.matchesRequestedRows,
+        identityHashMatch: readBackVerification.identityHashMatch,
+        contentHashPresent: readBackVerification.contentHashPresent,
+        selectedColumnsOnly: readBackVerification.selectedColumnsOnly,
+        selectStarUsed: readBackVerification.selectStarUsed,
+        executed: readBackVerification.executed,
+        readBackRows: readBackVerification.readBackRows,
+        identityHashCount: readBackVerification.identityHashCount,
+        partDateMatch: readBackVerification.partDateMatch,
+        auditStatusPresent: readBackVerification.auditStatusPresent,
       },
       rollbackEvidence: {
         importBatchId: result.importBatchId,
