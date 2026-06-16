@@ -45,7 +45,18 @@ export interface LedgerSyncDiffPlan {
     readBlockedReason: string | null;
     selectedColumnsOnly: true;
     selectStarUsed: false;
+    reader?: LedgerSyncReadOnlyReaderEvidence | null;
   };
+}
+
+export interface LedgerSyncReadOnlyReaderEvidence {
+  paged: true;
+  pageSize: number;
+  pagesRead: number;
+  fetchedRows: number;
+  expectedCount: number | null;
+  countMatchesFetchedRows: boolean | null;
+  rawRowsReturned: false;
 }
 
 export interface DuplicateSyncKeySummary {
@@ -161,6 +172,7 @@ export function planLedgerSyncDiff(input: {
       readBlockedReason: input.readOnlyEvidence?.readBlockedReason ?? null,
       selectedColumnsOnly: true,
       selectStarUsed: false,
+      reader: input.readOnlyEvidence?.reader ?? null,
     },
   };
 }
