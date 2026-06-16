@@ -215,6 +215,7 @@ export async function POST(request: Request) {
       readOnlyEvidence: {
         readExecuted: existingRead.readExecuted,
         readBlockedReason: existingRead.readBlockedReason,
+        reader: existingRead.diagnostics,
       },
     });
     const legacySchemaIdentityDiagnostics = summarizeDuplicateSyncKeys(legacyIncomingSyncRows);

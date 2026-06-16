@@ -70,6 +70,70 @@ describe("ledger sync diff planner", () => {
     expect(plan.diff.deleteCandidates).toBe(0);
   });
 
+  it("plans the post-G-6G dry-run target after paging 1133 existing rows", () => {
+    const existingRows = numberedSyncRows(1133);
+    const incomingRows = numberedSyncRows(2119);
+    const reader = {
+      paged: true as const,
+      pageSize: 500,
+      pagesRead: 3,
+      fetchedRows: 1133,
+      expectedCount: 1133,
+      countMatchesFetchedRows: true,
+      rawRowsReturned: false as const,
+    };
+    const plan = planLedgerSyncDiff({
+      scope,
+      incomingRows,
+      existingRows,
+      incomingSummary: summary(incomingRows.length),
+      readOnlyEvidence: {
+        readExecuted: true,
+        readBlockedReason: null,
+        reader,
+      },
+    });
+
+    expect(plan.existing.scopedRows).toBe(1133);
+    expect(plan.diff.insertCandidates).toBe(986);
+    expect(plan.diff.updateCandidates).toBe(0);
+    expect(plan.diff.deleteCandidates).toBe(0);
+    expect(plan.diff.noChangeRows).toBe(1133);
+    expect(plan.planReady).toBe(true);
+    expect(plan.readOnlyEvidence.reader).toEqual(reader);
+  });
+
+  it("plans final no-change after all 2119 incoming rows are already synced", () => {
+    const existingRows = numberedSyncRows(2119);
+    const incomingRows = numberedSyncRows(2119);
+    const plan = planLedgerSyncDiff({
+      scope,
+      incomingRows,
+      existingRows,
+      incomingSummary: summary(incomingRows.length),
+      readOnlyEvidence: {
+        readExecuted: true,
+        readBlockedReason: null,
+        reader: {
+          paged: true,
+          pageSize: 500,
+          pagesRead: 5,
+          fetchedRows: 2119,
+          expectedCount: 2119,
+          countMatchesFetchedRows: true,
+          rawRowsReturned: false,
+        },
+      },
+    });
+
+    expect(plan.existing.scopedRows).toBe(2119);
+    expect(plan.diff.insertCandidates).toBe(0);
+    expect(plan.diff.updateCandidates).toBe(0);
+    expect(plan.diff.deleteCandidates).toBe(0);
+    expect(plan.diff.noChangeRows).toBe(2119);
+    expect(plan.planReady).toBe(true);
+  });
+
   it("marks equal sync key and different content hash as update", () => {
     const plan = planLedgerSyncDiff({
       scope,
@@ -212,6 +276,13 @@ function syncRow(syncKey: string, syncContentHash: string, overrides: Partial<Le
     rowIndex: 1,
     ...overrides,
   };
+}
+
+function numberedSyncRows(count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const number = String(index + 1).padStart(4, "0");
+    return syncRow(`key-${number}`, `hash-${number}`, { rowIndex: index + 1 });
+  });
 }
 
 function summary(normalRows: number) {
