@@ -13,8 +13,10 @@ import type { ParsedLedgerRow } from "@/lib/types";
 
 export const G6B_EXPECTED_SOURCE_FILE_HASH =
   "sha256:37e0833cf4329d08c7ee4093e4807712bd41c30149a344b8db440e1cb5472ca0";
+export const H2_EXPECTED_SOURCE_FILE_HASH =
+  "sha256:c13f1921051df174e1b457bf10e499711069a5f830c0150eeef576b132cdfe42";
 
-export type LimitedApplyStage = "G-6B" | "G-6D" | "G-6E" | "G-6F" | "G-6G" | "G-6H" | "G-6I";
+export type LimitedApplyStage = "G-6B" | "G-6D" | "G-6E" | "G-6F" | "G-6G" | "G-6H" | "G-6I" | "H-2";
 
 export interface LimitedApplyStageConfig {
   stage: LimitedApplyStage;
@@ -24,6 +26,9 @@ export interface LimitedApplyStageConfig {
   expectedInsertCandidates: number;
   expectedNoChangeRows: number;
   requiresExplicitPeriod: boolean;
+  expectedSourceFileHash: string;
+  expectedDateFrom: string;
+  expectedDateTo: string;
 }
 
 export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplyStageConfig> = {
@@ -35,6 +40,9 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedInsertCandidates: 2119,
     expectedNoChangeRows: 0,
     requiresExplicitPeriod: false,
+    expectedSourceFileHash: G6B_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-01",
+    expectedDateTo: "2026-06-06",
   },
   "G-6D": {
     stage: "G-6D",
@@ -44,6 +52,9 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedInsertCandidates: 2116,
     expectedNoChangeRows: 3,
     requiresExplicitPeriod: false,
+    expectedSourceFileHash: G6B_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-01",
+    expectedDateTo: "2026-06-06",
   },
   "G-6E": {
     stage: "G-6E",
@@ -53,6 +64,9 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedInsertCandidates: 2086,
     expectedNoChangeRows: 33,
     requiresExplicitPeriod: false,
+    expectedSourceFileHash: G6B_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-01",
+    expectedDateTo: "2026-06-06",
   },
   "G-6F": {
     stage: "G-6F",
@@ -62,6 +76,9 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedInsertCandidates: 1986,
     expectedNoChangeRows: 133,
     requiresExplicitPeriod: true,
+    expectedSourceFileHash: G6B_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-01",
+    expectedDateTo: "2026-06-06",
   },
   "G-6G": {
     stage: "G-6G",
@@ -71,6 +88,9 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedInsertCandidates: 1486,
     expectedNoChangeRows: 633,
     requiresExplicitPeriod: true,
+    expectedSourceFileHash: G6B_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-01",
+    expectedDateTo: "2026-06-06",
   },
   "G-6H": {
     stage: "G-6H",
@@ -80,6 +100,9 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedInsertCandidates: 986,
     expectedNoChangeRows: 1133,
     requiresExplicitPeriod: true,
+    expectedSourceFileHash: G6B_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-01",
+    expectedDateTo: "2026-06-06",
   },
   "G-6I": {
     stage: "G-6I",
@@ -89,6 +112,21 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedInsertCandidates: 486,
     expectedNoChangeRows: 1633,
     requiresExplicitPeriod: true,
+    expectedSourceFileHash: G6B_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-01",
+    expectedDateTo: "2026-06-06",
+  },
+  "H-2": {
+    stage: "H-2",
+    approvalFileName: "h2_limited_apply_approval.json",
+    expectedMaxRows: 500,
+    expectedExistingScopedRows: 0,
+    expectedInsertCandidates: 2473,
+    expectedNoChangeRows: 0,
+    requiresExplicitPeriod: true,
+    expectedSourceFileHash: H2_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-07",
+    expectedDateTo: "2026-06-12",
   },
 };
 
@@ -195,8 +233,8 @@ export function validateLimitedApplyApproval(input: unknown): LimitedApplyApprov
 
   if (!config) blockedReasons.push("APPROVAL_STAGE_MISMATCH");
   if (targetPart !== "11") blockedReasons.push("APPROVAL_TARGET_PART_MISMATCH");
-  if (approval.test_file_hash !== G6B_EXPECTED_SOURCE_FILE_HASH) blockedReasons.push("APPROVAL_FILE_HASH_MISMATCH");
-  if (approval.date_from !== "2026-06-01" || approval.date_to !== "2026-06-06") {
+  if (config && approval.test_file_hash !== config.expectedSourceFileHash) blockedReasons.push("APPROVAL_FILE_HASH_MISMATCH");
+  if (config && (approval.date_from !== config.expectedDateFrom || approval.date_to !== config.expectedDateTo)) {
     blockedReasons.push("APPROVAL_DATE_RANGE_MISMATCH");
   }
   if (!config || approval.max_rows !== config.expectedMaxRows) blockedReasons.push("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
