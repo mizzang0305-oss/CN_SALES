@@ -110,7 +110,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).not.toContain("error.message");
   });
 
-  it("keeps G-6B/G-6D/G-6E/G-6F/G-6G/G-6H/G-6I limited apply on insert-only ledger row persistence", () => {
+  it("keeps G-6B/G-6D/G-6E/G-6F/G-6G/G-6H/G-6I/H-2 limited apply on insert-only ledger row persistence", () => {
     const methodStart = supabaseRepositorySource.indexOf("async limitedInsertLedgerRows");
     const methodEnd = supabaseRepositorySource.indexOf("async getDashboardTotals", methodStart);
     const methodSource = supabaseRepositorySource.slice(methodStart, methodEnd);
@@ -174,6 +174,19 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(limitedApplySource).toContain("expectedExistingScopedRows: 1633");
     expect(limitedApplySource).toContain("expectedInsertCandidates: 486");
     expect(limitedApplySource).toContain("expectedNoChangeRows: 1633");
+    expect(limitedApplySource).toContain("requiresExplicitPeriod: true");
+  });
+
+  it("keeps H-2 configured as an explicit max-500 next XLS limited apply stage", () => {
+    expect(limitedApplySource).toContain('"H-2"');
+    expect(limitedApplySource).toContain("H2_EXPECTED_SOURCE_FILE_HASH");
+    expect(limitedApplySource).toContain("h2_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("expectedMaxRows: 500");
+    expect(limitedApplySource).toContain("expectedExistingScopedRows: 0");
+    expect(limitedApplySource).toContain("expectedInsertCandidates: 2473");
+    expect(limitedApplySource).toContain("expectedNoChangeRows: 0");
+    expect(limitedApplySource).toContain('expectedDateFrom: "2026-06-07"');
+    expect(limitedApplySource).toContain('expectedDateTo: "2026-06-12"');
     expect(limitedApplySource).toContain("requiresExplicitPeriod: true");
   });
 
