@@ -190,6 +190,25 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(limitedApplySource).toContain("requiresExplicitPeriod: true");
   });
 
+  it("keeps H-2F final remainder support exact and workflow-gated", () => {
+    expect(limitedApplySource).toContain('const H2_FINAL_REMAINDER_WORKFLOW_GATE = "H-2F"');
+    expect(limitedApplySource).toContain("H2_FINAL_REMAINDER_EXPECTED");
+    expect(limitedApplySource).toContain("maxRows: 473");
+    expect(limitedApplySource).toContain("expectedInsertedRows: 473");
+    expect(limitedApplySource).toContain("primaryScopeRows: 2473");
+    expect(limitedApplySource).toContain("existingScopedRows: 2000");
+    expect(limitedApplySource).toContain("insertCandidates: 473");
+    expect(limitedApplySource).toContain("updateCandidates: 0");
+    expect(limitedApplySource).toContain("deleteCandidates: 0");
+    expect(limitedApplySource).toContain("noChangeRows: 2000");
+    expect(limitedApplySource).toContain("APPROVAL_WORKFLOW_GATE_UNSUPPORTED");
+    expect(limitedApplySource).toContain("APPROVAL_EXPECTED_INSERTED_ROWS_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_UPDATE_CANDIDATES_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_DELETE_CANDIDATES_MISMATCH");
+    expect(limitedApplySource).not.toContain("startsWith(\"H-\")");
+    expect(limitedApplySource).not.toContain("max_rows <= 500");
+  });
+
   it("keeps final sync verification aggregate-only and write-free", () => {
     expect(finalSyncVerificationSource).toContain("finalSyncExpectedState");
     expect(finalSyncVerificationSource).toContain("normalRows: 2119");

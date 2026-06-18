@@ -16,6 +16,19 @@ export const G6B_EXPECTED_SOURCE_FILE_HASH =
 export const H2_EXPECTED_SOURCE_FILE_HASH =
   "sha256:c13f1921051df174e1b457bf10e499711069a5f830c0150eeef576b132cdfe42";
 
+const H2_FINAL_REMAINDER_WORKFLOW_GATE = "H-2F";
+const H2_FINAL_REMAINDER_EXPECTED = {
+  maxRows: 473,
+  primaryScopeRows: 2473,
+  existingScopedRows: 2000,
+  insertCandidates: 473,
+  updateCandidates: 0,
+  deleteCandidates: 0,
+  noChangeRows: 2000,
+  expectedInsertedRows: 473,
+};
+const H2_STANDARD_WORKFLOW_GATES = new Set(["H-2B", "H-2C", "H-2D", "H-2E"]);
+
 export type LimitedApplyStage = "G-6B" | "G-6D" | "G-6E" | "G-6F" | "G-6G" | "G-6H" | "G-6I" | "H-2";
 
 export interface LimitedApplyStageConfig {
@@ -141,6 +154,7 @@ export const LIMITED_APPLY_STAGE_POLICIES = Object.fromEntries(
 ) as Record<LimitedApplyStage, { maxRows: number; requiresExplicitPeriod: boolean }>;
 
 export interface LimitedApplyApproval {
+  workflowGate?: string;
   stage: LimitedApplyStage;
   target_part: string | number;
   test_file_hash: string;
@@ -158,9 +172,13 @@ export interface LimitedApplyApproval {
   delete_approved: boolean;
   update_approved: boolean;
   full_apply_approved?: boolean;
+  expectedInsertedRows?: number;
   source_preview?: {
+    primaryScopeRows?: number;
     existingScopedRows?: number;
     insertCandidates?: number;
+    updateCandidates?: number;
+    deleteCandidates?: number;
     noChangeRows?: number;
   };
 }
@@ -229,7 +247,9 @@ export function validateLimitedApplyApproval(input: unknown): LimitedApplyApprov
   const approval = input as unknown as LimitedApplyApproval;
   const blockedReasons: string[] = [];
   const targetPart = String(approval.target_part ?? "").trim();
+  const workflowGate = getApprovalWorkflowGate(approval);
   const config = getLimitedApplyStageConfig(approval.stage);
+  const h2FinalRemainderApproval = approval.stage === "H-2" && workflowGate === H2_FINAL_REMAINDER_WORKFLOW_GATE;
 
   if (!config) blockedReasons.push("APPROVAL_STAGE_MISMATCH");
   if (targetPart !== "11") blockedReasons.push("APPROVAL_TARGET_PART_MISMATCH");
@@ -237,7 +257,14 @@ export function validateLimitedApplyApproval(input: unknown): LimitedApplyApprov
   if (config && (approval.date_from !== config.expectedDateFrom || approval.date_to !== config.expectedDateTo)) {
     blockedReasons.push("APPROVAL_DATE_RANGE_MISMATCH");
   }
-  if (!config || approval.max_rows !== config.expectedMaxRows) blockedReasons.push("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
+  if (approval.stage === "H-2" && workflowGate && !H2_STANDARD_WORKFLOW_GATES.has(workflowGate) && workflowGate !== H2_FINAL_REMAINDER_WORKFLOW_GATE) {
+    blockedReasons.push("APPROVAL_WORKFLOW_GATE_UNSUPPORTED");
+  }
+  if (h2FinalRemainderApproval) {
+    validateH2FinalRemainderApprovalShape(approval, blockedReasons);
+  } else if (!config || approval.max_rows !== config.expectedMaxRows) {
+    blockedReasons.push("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
+  }
   if (approval.apply_mode !== "limited-apply") blockedReasons.push("APPROVAL_MODE_MISMATCH");
   if (!isInsertOnly(approval.allowed_operations)) blockedReasons.push("APPROVAL_ALLOWED_OPERATIONS_NOT_INSERT_ONLY");
   if (!hasBlockedOperations(approval.blocked_operations)) blockedReasons.push("APPROVAL_BLOCKED_OPERATIONS_INCOMPLETE");
@@ -255,6 +282,36 @@ export function validateLimitedApplyApproval(input: unknown): LimitedApplyApprov
     blockedReasons,
     approval: blockedReasons.length === 0 ? approval : undefined,
   };
+}
+
+function getApprovalWorkflowGate(approval: LimitedApplyApproval) {
+  return typeof approval.workflowGate === "string" ? approval.workflowGate.trim() : "";
+}
+
+function validateH2FinalRemainderApprovalShape(approval: LimitedApplyApproval, blockedReasons: string[]) {
+  const sourcePreview = approval.source_preview ?? {};
+  if (approval.max_rows !== H2_FINAL_REMAINDER_EXPECTED.maxRows) blockedReasons.push("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
+  if (approval.expectedInsertedRows !== H2_FINAL_REMAINDER_EXPECTED.expectedInsertedRows) {
+    blockedReasons.push("APPROVAL_EXPECTED_INSERTED_ROWS_MISMATCH");
+  }
+  if (sourcePreview.primaryScopeRows !== H2_FINAL_REMAINDER_EXPECTED.primaryScopeRows) {
+    blockedReasons.push("APPROVAL_PRIMARY_SCOPE_ROWS_MISMATCH");
+  }
+  if (sourcePreview.existingScopedRows !== H2_FINAL_REMAINDER_EXPECTED.existingScopedRows) {
+    blockedReasons.push("APPROVAL_EXISTING_SCOPED_ROWS_MISMATCH");
+  }
+  if (sourcePreview.insertCandidates !== H2_FINAL_REMAINDER_EXPECTED.insertCandidates) {
+    blockedReasons.push("APPROVAL_INSERT_CANDIDATES_MISMATCH");
+  }
+  if (sourcePreview.updateCandidates !== H2_FINAL_REMAINDER_EXPECTED.updateCandidates) {
+    blockedReasons.push("APPROVAL_UPDATE_CANDIDATES_MISMATCH");
+  }
+  if (sourcePreview.deleteCandidates !== H2_FINAL_REMAINDER_EXPECTED.deleteCandidates) {
+    blockedReasons.push("APPROVAL_DELETE_CANDIDATES_MISMATCH");
+  }
+  if (sourcePreview.noChangeRows !== H2_FINAL_REMAINDER_EXPECTED.noChangeRows) {
+    blockedReasons.push("APPROVAL_NO_CHANGE_ROWS_MISMATCH");
+  }
 }
 
 export function selectLimitedApplyRows(input: {
@@ -409,8 +466,11 @@ export function validateLimitedApplyPreconditions(input: {
   const blockedReasons = [...approvalValidation.blockedReasons];
   const targetPart = String(input.approval.target_part).trim();
   const config = getLimitedApplyStageConfig(input.approval.stage);
+  const expectedPrimaryScopeRows = input.approval.source_preview?.primaryScopeRows;
   const expectedExistingScopedRows = input.approval.source_preview?.existingScopedRows ?? config?.expectedExistingScopedRows;
   const expectedInsertCandidates = input.approval.source_preview?.insertCandidates ?? config?.expectedInsertCandidates;
+  const expectedUpdateCandidates = input.approval.source_preview?.updateCandidates;
+  const expectedDeleteCandidates = input.approval.source_preview?.deleteCandidates;
   const expectedNoChangeRows = input.approval.source_preview?.noChangeRows ?? config?.expectedNoChangeRows;
 
   if (input.sourceFileHash !== input.approval.test_file_hash) blockedReasons.push("SOURCE_FILE_HASH_MISMATCH");
@@ -434,11 +494,20 @@ export function validateLimitedApplyPreconditions(input: {
   }
   if (input.syncDiff.incoming.warningRows > 0) blockedReasons.push("WARNING_ROWS_PRESENT");
   if (input.syncDiff.incoming.errorRows > 0) blockedReasons.push("ERROR_ROWS_PRESENT");
+  if (expectedPrimaryScopeRows !== undefined && input.syncDiff.incoming.normalRows !== expectedPrimaryScopeRows) {
+    blockedReasons.push("PRIMARY_SCOPE_ROWS_MISMATCH");
+  }
   if (expectedExistingScopedRows === undefined || input.syncDiff.existing.scopedRows !== expectedExistingScopedRows) {
     blockedReasons.push("EXISTING_SCOPED_ROWS_MISMATCH");
   }
   if (expectedInsertCandidates === undefined || input.syncDiff.diff.insertCandidates !== expectedInsertCandidates) {
     blockedReasons.push("INSERT_CANDIDATES_MISMATCH");
+  }
+  if (expectedUpdateCandidates !== undefined && input.syncDiff.diff.updateCandidates !== expectedUpdateCandidates) {
+    blockedReasons.push("UPDATE_CANDIDATES_MISMATCH");
+  }
+  if (expectedDeleteCandidates !== undefined && input.syncDiff.diff.deleteCandidates !== expectedDeleteCandidates) {
+    blockedReasons.push("DELETE_CANDIDATES_MISMATCH");
   }
   if (input.syncDiff.diff.updateCandidates > 0) blockedReasons.push("UPDATE_CANDIDATE_PRESENT");
   if (input.syncDiff.diff.deleteCandidates > 0) blockedReasons.push("DELETE_CANDIDATE_PRESENT");
