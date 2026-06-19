@@ -303,6 +303,40 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(limitedApplySource).not.toContain("max_rows <= 500");
   });
 
+  it("keeps L-series configured as exact part-5 limited apply stages", () => {
+    expect(limitedApplySource).toContain('"L-2"');
+    expect(limitedApplySource).toContain('"L-3"');
+    expect(limitedApplySource).toContain('"L-4"');
+    expect(limitedApplySource).toContain('"L-5"');
+    expect(limitedApplySource).toContain("L2_EXPECTED_SOURCE_FILE_HASH");
+    expect(limitedApplySource).toContain("L_SERIES_EXPECTED");
+    expect(limitedApplySource).toContain("l2_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("l3_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("l4_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("l5_limited_apply_approval.json");
+    expect(limitedApplySource).toContain('expectedTargetPartCode: "5"');
+    expect(limitedApplySource).toContain('expectedWorkflowGate: L_SERIES_EXPECTED["L-3"].workflowGate');
+    expect(limitedApplySource).toContain("expectedMaxRows: 500");
+    expect(limitedApplySource).toContain("maxRows: 46");
+    expect(limitedApplySource).toContain("expectedInsertedRows: 46");
+    expect(limitedApplySource).toContain("primaryScopeRows: 1546");
+    expect(limitedApplySource).toContain("existingScopedRows: 500");
+    expect(limitedApplySource).toContain("insertCandidates: 1046");
+    expect(limitedApplySource).toContain("existingScopedRows: 1000");
+    expect(limitedApplySource).toContain("insertCandidates: 546");
+    expect(limitedApplySource).toContain("existingScopedRows: 1500");
+    expect(limitedApplySource).toContain("insertCandidates: 46");
+    expect(limitedApplySource).toContain('expectedDateFrom: "2026-06-01"');
+    expect(limitedApplySource).toContain('expectedDateTo: "2026-06-06"');
+    expect(limitedApplySource).toContain("validateLSeriesApprovalShape");
+    expect(limitedApplySource).toContain("APPROVAL_EXPECTED_INSERTED_ROWS_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_PRIMARY_SCOPE_ROWS_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_UPDATE_CANDIDATES_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_DELETE_CANDIDATES_MISMATCH");
+    expect(limitedApplySource).not.toContain("startsWith(\"L-\")");
+    expect(limitedApplySource).not.toContain("max_rows <= 500");
+  });
+
   it("keeps production mode from enabling dryRun=false DB writes", () => {
     expect(envSource).toContain('const nodeEnv = process.env.NODE_ENV');
     expect(envSource).toContain('nodeEnv === "production"');
