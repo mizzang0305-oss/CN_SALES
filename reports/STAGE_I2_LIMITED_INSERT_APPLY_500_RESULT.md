@@ -2,27 +2,28 @@
 
 ## 1. FINAL_STATUS
 
-`BLOCKED_I2_STAGE_SUPPORT_MISSING`
+`I2_LIMITED_INSERT_APPLY_500_PASS`
 
-I-2 was stopped before approval-file creation, pre-apply execution, localhost limited apply, `dryRun=false`, DB write, production POST, update, delete, full apply, migration, seed, storage action, deploy, raw row output, PII output, secret/env output, or previous stage rerun.
+I-2 executed exactly one successful localhost limited apply for the first `500` insert candidates from `1파트 1~6일 매출현황.XLS`, scoped to part `1` and `2026-06-01` through `2026-06-06`.
 
-The requested I-2 target is valid as an I-1 read-only candidate, but the current code does not recognize `I-2` as a configured limited apply stage. Per the I-2 approval instruction, actual apply must not proceed until an explicit report-only code/test support stage adds and verifies that contract.
+The operation was limited to `INSERT` only. No production POST, update, delete, full apply, migration, seed, storage write, normalized table write, deploy, previous G/H-stage rerun, raw row output, PII output, or secret/env output was performed.
 
-## 2. PR #65 Merge Status
+Note: one initial `dryRun=false` request was blocked with HTTP `403` before any DB write because `next start` runs in production mode and the write guard rejected writes. The server was replaced with localhost dev mode, the pre-apply dry-run was rerun and matched expected values, and then the successful I-2 apply was executed once.
+
+## 2. PR #67 Merge Status
 
 | Field | Value |
 | --- | --- |
-| PR URL | `https://github.com/mizzang0305-oss/CN_SALES/pull/65` |
+| PR URL | `https://github.com/mizzang0305-oss/CN_SALES/pull/67` |
 | Ready/merge status | `MERGED` |
 | Merge method | `squash` |
-| Merge commit | `e5c47ab53cf271b7871959df380ebedb5483190f` |
-| Merged at | `2026-06-19T03:50:35Z` |
-| Changed file | `reports/STAGE_I1_NEXT_XLS_READ_ONLY_DRY_RUN_GATE.md` |
-| Report-only | `true` |
+| Merge commit | `7f479f0db42c090a72a412baa3776765d53c7a32` |
+| Merged at | `2026-06-19T04:37:21Z` |
+| Code/test/report only | `true` |
 
-PR #65 was reviewed before I-2. It changed only the I-1 read-only dry-run report, returned aggregate-only values, and did not authorize any apply.
+PR #67 was reviewed and merged before actual I-2 apply. It added exact `I-2` stage support and did not execute apply.
 
-## 3. Target Baseline From I-1
+## 3. Target
 
 | Field | Value |
 | --- | --- |
@@ -31,9 +32,22 @@ PR #65 was reviewed before I-2. It changed only the I-1 read-only dry-run report
 | Period start | `2026-06-01` |
 | Period end | `2026-06-06` |
 | Source hash | `sha256:f43f9eefc35eb30b84e682e22be117d99f30897d69b72d16a91b0adf9a28fcbd` |
+| Preview checksum | `sha256:b1adba841143be6eecd40c94f5a73167abd16d6ff34beeb775216871bf6cc9ab` |
+| Total rows | `1774` |
 | Normal rows | `1528` |
 | Excluded rows | `246` |
 | Amount total | `563169208` |
+
+## 4. Pre-Apply Dry-Run
+
+The pre-apply dry-run was rerun on the localhost dev server after the production-mode blocked attempt.
+
+| Field | Value |
+| --- | ---: |
+| Preview HTTP status | `200` |
+| Confirm dry-run HTTP status | `200` |
+| Dry-run ready | `true` |
+| Source hash matched | `true` |
 | Primary scope rows | `1528` |
 | Existing scoped rows | `0` |
 | No-change rows | `0` |
@@ -42,124 +56,164 @@ PR #65 was reviewed before I-2. It changed only the I-1 read-only dry-run report
 | Delete candidates | `0` |
 | Plan ready | `true` |
 | Raw rows returned | `false` |
+| Date outside scope rows | `0` |
+| Invalid date rows | `0` |
+| Missing date rows | `0` |
+| DB write | `false` |
+| Actual apply | `false` |
 
-These values are copied from the merged I-1 aggregate-only report. I-2 did not rerun the read-only dry-run after detecting missing stage support.
+Pre-apply decision: PASS. All expected current-state aggregate values matched before the successful apply call.
 
-## 4. I-2 Stage Support Check
+## 5. Approval File Summary
 
-| Required support | Result |
-| --- | --- |
-| `I-2` recognized as limited apply stage | `false` |
-| Wildcard stage allowed | `false` |
-| Any I-stage allowed | `false` |
-| Operation contract | `unsupported for I-2` |
-| Max rows contract | `unsupported for I-2` |
-| Period contract | `unsupported for I-2` |
-| File hash contract | `unsupported for I-2` |
-| Approval file requirement | `not reachable for I-2` |
-| Update/delete/full apply block | `apply path not entered` |
-| Raw row return block | `apply path not entered` |
-
-Read-only code inspection found configured limited apply stages only for `G-6B`, `G-6D`, `G-6E`, `G-6F`, `G-6G`, `G-6H`, `G-6I`, and `H-2`. There is no `I-2` entry in the limited apply stage union or config map.
-
-## 5. Pre-Apply Dry-Run
+Local-only approval file:
 
 | Field | Value |
 | --- | --- |
-| Executed in I-2 | `false` |
-| Reason | `I-2 stage support missing` |
-| Expected normal rows | `1528` |
-| Expected excluded rows | `246` |
-| Expected amount total | `563169208` |
-| Expected existing scoped rows | `0` |
-| Expected insert candidates | `1528` |
-| Expected update candidates | `0` |
-| Expected delete candidates | `0` |
-| Expected plan ready | `true` |
+| Path | `.local-approval/i2_limited_apply_approval.json` |
+| Git included | `false` |
+| Workflow gate | `I-2` |
+| Stage | `I-2` |
+| Operation | `INSERT only` |
+| Max rows | `500` |
+| Period start | `2026-06-01` |
+| Period end | `2026-06-06` |
+| File hash | `sha256:f43f9eefc35eb30b84e682e22be117d99f30897d69b72d16a91b0adf9a28fcbd` |
+| Expected primary scope rows | `1528` |
+| Expected existing scoped rows before apply | `0` |
+| Expected insert candidates before apply | `1528` |
+| Expected update candidates before apply | `0` |
+| Expected delete candidates before apply | `0` |
+| Expected inserted rows | `500` |
 
-No localhost apply request was made. No `dryRun=false` request was made.
+The approval file remained local-only and was not staged or committed.
 
-## 6. Approval And Apply Result
+## 6. Apply Result
+
+Scope: localhost only, `approvalStage=I-2`, `workflowGate=I-2`, `maxRows=500`.
 
 | Field | Value |
-| --- | --- |
-| Approval file created | `NO` |
-| Approval file committed | `NO` |
-| Localhost limited apply executed | `NO` |
-| `dryRun=false` actual call | `NO` |
-| Requested operation | `INSERT only` |
-| Requested max rows | `500` |
-| Inserted rows | `0` |
+| --- | ---: |
+| HTTP status | `200` |
+| Dry run | `false` |
+| Apply mode | `limited-apply` |
+| Stage | `I-2` |
+| Actual apply executed | `true` |
+| Requested rows | `500` |
+| Inserted rows | `500` |
 | Updated rows | `0` |
 | Deleted rows | `0` |
-| Remaining insert candidates | `1528` |
+| Normalized table write | `false` |
+| DB write | `true` |
+| Storage write | `false` |
+| Production POST | `false` |
+| Migration apply | `false` |
+| Seed apply | `false` |
 
-I-2 first 500 insert was not attempted because the stage is not supported by the current code.
-
-## 7. Post-Apply And Read-Back
+## 7. Read-Back Result
 
 | Field | Value |
-| --- | --- |
-| Post-apply read-back executed | `false` |
-| Post-apply dry-run executed | `false` |
-| Expected scoped rows after apply | `not evaluated` |
-| Expected remaining insert candidates after apply | `not evaluated` |
-| Actual scoped rows after apply | `not evaluated` |
-| Actual remaining insert candidates after apply | `not evaluated` |
+| --- | ---: |
+| Read-back executed | `true` |
+| Read-back rows | `500` |
+| Matches requested rows | `true` |
+| Identity hash match | `true` |
+| Content hash present | `true` |
+| Part/date match | `true` |
+| Audit status present | `true` |
+| Selected columns only | `true` |
+| Select star used | `false` |
+| Raw rows printed | `false` |
 
-No write occurred, so no post-write verification was applicable in this blocked stage.
+No row IDs, identity hash lists, raw row JSON, customer names, personal data, or secrets were printed.
 
-## 8. Safety Result
+## 8. Post-Apply Dry-Run
+
+| Field | Value |
+| --- | ---: |
+| Preview HTTP status | `200` |
+| Confirm dry-run HTTP status | `200` |
+| Dry run | `true` |
+| Dry-run ready | `true` |
+| Actual apply ready | `false` |
+| Actual apply blocked reason | `APPLY_NOT_APPROVED` |
+| Primary scope rows | `1528` |
+| Existing scoped rows | `500` |
+| No-change rows | `500` |
+| Insert candidates | `1028` |
+| Update candidates | `0` |
+| Delete candidates | `0` |
+| Plan ready | `true` |
+| Read executed | `true` |
+| Read blocked reason | `null` |
+| Selected columns only | `true` |
+| Select star used | `false` |
+| Raw rows returned | `false` |
+| Date outside scope rows | `0` |
+| Invalid date rows | `0` |
+| Missing date rows | `0` |
+| DB write | `false` |
+| Actual apply | `false` |
+
+Post-apply decision: PASS. The first `500` rows were inserted and `1028` insert candidates remain.
+
+## 9. Remaining Insert Candidates
+
+| Field | Value |
+| --- | ---: |
+| Initial I-2 insert candidates | `1528` |
+| Applied in I-2 | `500` |
+| Remaining insert candidates | `1028` |
+| Next apply allowed now | `false` |
+
+The next insert batch requires a separate explicit approval gate.
+
+## 10. Safety Result
 
 | Safety item | Result |
 | --- | --- |
-| DB write | `NO` |
-| Apply | `NO` |
-| Localhost apply | `NO` |
+| DB write | `YES`, limited to approved localhost `500` row insert |
 | Production POST | `NO` |
-| `dryRun=false` actual call | `NO` |
 | Update/delete/full apply | `NO` |
+| More than 500 rows applied | `NO` |
 | Migration/seed/storage | `NO` |
+| Normalized table write | `NO` |
 | Raw row output | `NO` |
 | PII output | `NO` |
 | Secret/env output | `NO` |
 | Deploy | `NO` |
-| Previous G-stage rerun | `NO` |
-| Previous H-stage rerun | `NO` |
+| Previous G/H-stage rerun | `NO` |
 | Approval file committed | `NO` |
-| Existing untracked `docs/adsense/` staged | `NO` |
 
-## 9. Validation Result
+## 11. Validation
 
-| Check | Result |
+| Command or scan | Result |
 | --- | --- |
 | `npm run lint` | `PASS` |
-| `npm run test` | `PASS`, 28 files / 215 tests |
+| `npm run test` | `PASS`, 28 files / 223 tests |
 | `npm run test:worker` | `PASS`, 4 tests |
 | `npm run build` | `PASS` |
 | `git diff --check` | `PASS` |
-| Secret/env scan | `PASS` |
-| Raw row/PII scan | `PASS` |
-| Production POST invocation scan | `PASS` |
-| Migration/seed/storage action scan | `PASS` |
-| `dryRun=false` actual invocation scan | `PASS` |
+| Report secret/env scan | `PASS` |
+| Report raw row/PII scan | `PASS` |
+| Production POST scan | `PASS` |
+| Migration/seed/storage scan | `PASS` |
+| Update/delete/full apply scan | `PASS` |
+| Over-500 actual insert scan | `PASS` |
+| Previous H-stage rerun scan | `PASS` |
+| Approval file committed scan | `PASS` |
+| Port 3215 after apply | `STOPPED` |
 
-The scan scope for invocation checks was the new report-only file. Existing application and test files still contain their established implementation and static-check strings, but they were not changed in this blocked I-2 stage.
+## 12. Next Recommendation
 
-## 10. Next Required Action
+Recommended next stage:
 
-`I-2A_LIMITED_APPLY_STAGE_SUPPORT_CODE_TEST_REPORT_ONLY`
+`I-2C_NEXT_500_LIMITED_INSERT_APPLY_APPROVAL`
 
-The next stage must be a report-only code/test support change that explicitly adds and verifies the `I-2` limited apply contract:
+Required before any next apply:
 
-- stage: `I-2`
-- operation: `INSERT only`
-- max rows: `500`
-- part: `1`
-- period: `2026-06-01` through `2026-06-06`
-- file hash: `sha256:f43f9eefc35eb30b84e682e22be117d99f30897d69b72d16a91b0adf9a28fcbd`
-- approval file required before any `dryRun=false`
-- update/delete/full apply blocked
-- aggregate-only diagnostics with no raw row, PII, or secret output
-
-No I-2 apply is allowed now.
+- Review and merge this I-2 result report PR.
+- Re-run a read-only dry-run for `1파트 1~6일 매출현황.XLS`.
+- Confirm `existingScopedRows = 500`, `noChangeRows = 500`, `insertCandidates = 1028`, `updateCandidates = 0`, and `deleteCandidates = 0`.
+- Create or revalidate a local-only approval file for the next bounded batch.
+- Request a separate explicit approval before any additional `dryRun=false` apply.
