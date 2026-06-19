@@ -243,6 +243,36 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(limitedApplySource).not.toContain("max_rows <= 500");
   });
 
+  it("keeps J-series configured as exact part-4 limited apply stages", () => {
+    expect(limitedApplySource).toContain('"J-2"');
+    expect(limitedApplySource).toContain('"J-3"');
+    expect(limitedApplySource).toContain('"J-4"');
+    expect(limitedApplySource).toContain("J2_EXPECTED_SOURCE_FILE_HASH");
+    expect(limitedApplySource).toContain("J_SERIES_EXPECTED");
+    expect(limitedApplySource).toContain("j2_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("j3_limited_apply_approval.json");
+    expect(limitedApplySource).toContain("j4_limited_apply_approval.json");
+    expect(limitedApplySource).toContain('expectedTargetPartCode: "4"');
+    expect(limitedApplySource).toContain('expectedWorkflowGate: J_SERIES_EXPECTED["J-3"].workflowGate');
+    expect(limitedApplySource).toContain("expectedMaxRows: 500");
+    expect(limitedApplySource).toContain("maxRows: 295");
+    expect(limitedApplySource).toContain("expectedInsertedRows: 295");
+    expect(limitedApplySource).toContain("primaryScopeRows: 1295");
+    expect(limitedApplySource).toContain("existingScopedRows: 500");
+    expect(limitedApplySource).toContain("insertCandidates: 795");
+    expect(limitedApplySource).toContain("existingScopedRows: 1000");
+    expect(limitedApplySource).toContain("insertCandidates: 295");
+    expect(limitedApplySource).toContain('expectedDateFrom: "2026-06-01"');
+    expect(limitedApplySource).toContain('expectedDateTo: "2026-06-06"');
+    expect(limitedApplySource).toContain("validateJSeriesApprovalShape");
+    expect(limitedApplySource).toContain("APPROVAL_EXPECTED_INSERTED_ROWS_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_PRIMARY_SCOPE_ROWS_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_UPDATE_CANDIDATES_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_DELETE_CANDIDATES_MISMATCH");
+    expect(limitedApplySource).not.toContain("startsWith(\"J-\")");
+    expect(limitedApplySource).not.toContain("max_rows <= 500");
+  });
+
   it("keeps production mode from enabling dryRun=false DB writes", () => {
     expect(envSource).toContain('const nodeEnv = process.env.NODE_ENV');
     expect(envSource).toContain('nodeEnv === "production"');
