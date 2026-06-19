@@ -110,7 +110,7 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(confirmRouteSource).not.toContain("error.message");
   });
 
-  it("keeps G-6B/G-6D/G-6E/G-6F/G-6G/G-6H/G-6I/H-2 limited apply on insert-only ledger row persistence", () => {
+  it("keeps G-6B/G-6D/G-6E/G-6F/G-6G/G-6H/G-6I/H-2/I-2 limited apply on insert-only ledger row persistence", () => {
     const methodStart = supabaseRepositorySource.indexOf("async limitedInsertLedgerRows");
     const methodEnd = supabaseRepositorySource.indexOf("async getDashboardTotals", methodStart);
     const methodSource = supabaseRepositorySource.slice(methodStart, methodEnd);
@@ -206,6 +206,27 @@ describe("upload preview safety and part mismatch guards", () => {
     expect(limitedApplySource).toContain("APPROVAL_UPDATE_CANDIDATES_MISMATCH");
     expect(limitedApplySource).toContain("APPROVAL_DELETE_CANDIDATES_MISMATCH");
     expect(limitedApplySource).not.toContain("startsWith(\"H-\")");
+    expect(limitedApplySource).not.toContain("max_rows <= 500");
+  });
+
+  it("keeps I-2 configured as an exact part-1 max-500 limited apply stage", () => {
+    expect(limitedApplySource).toContain('"I-2"');
+    expect(limitedApplySource).toContain("I2_EXPECTED_SOURCE_FILE_HASH");
+    expect(limitedApplySource).toContain("i2_limited_apply_approval.json");
+    expect(limitedApplySource).toContain('expectedTargetPartCode: "1"');
+    expect(limitedApplySource).toContain('expectedWorkflowGate: I2_WORKFLOW_GATE');
+    expect(limitedApplySource).toContain("expectedMaxRows: 500");
+    expect(limitedApplySource).toContain("expectedExistingScopedRows: I2_EXPECTED.existingScopedRows");
+    expect(limitedApplySource).toContain("expectedInsertCandidates: I2_EXPECTED.insertCandidates");
+    expect(limitedApplySource).toContain("expectedNoChangeRows: I2_EXPECTED.noChangeRows");
+    expect(limitedApplySource).toContain('expectedDateFrom: "2026-06-01"');
+    expect(limitedApplySource).toContain('expectedDateTo: "2026-06-06"');
+    expect(limitedApplySource).toContain("validateI2ApprovalShape");
+    expect(limitedApplySource).toContain("APPROVAL_EXPECTED_INSERTED_ROWS_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_PRIMARY_SCOPE_ROWS_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_UPDATE_CANDIDATES_MISMATCH");
+    expect(limitedApplySource).toContain("APPROVAL_DELETE_CANDIDATES_MISMATCH");
+    expect(limitedApplySource).not.toContain("startsWith(\"I-\")");
     expect(limitedApplySource).not.toContain("max_rows <= 500");
   });
 
