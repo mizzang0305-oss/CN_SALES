@@ -19,6 +19,8 @@ export const I2_EXPECTED_SOURCE_FILE_HASH =
   "sha256:f43f9eefc35eb30b84e682e22be117d99f30897d69b72d16a91b0adf9a28fcbd";
 export const J2_EXPECTED_SOURCE_FILE_HASH =
   "sha256:5acf018ec065195bc8c122d43d9ed16eaa4e068f7182798c135fa9fc814ca8e9";
+export const K2_EXPECTED_SOURCE_FILE_HASH =
+  "sha256:a5c5ecf67009a83d2bb5639229462e9231ccff1e81291e0cecc365263597217a";
 
 const H2_FINAL_REMAINDER_WORKFLOW_GATE = "H-2F";
 const H2_FINAL_REMAINDER_EXPECTED = {
@@ -35,6 +37,7 @@ const H2_STANDARD_WORKFLOW_GATES = new Set(["H-2B", "H-2C", "H-2D", "H-2E"]);
 
 type ISeriesLimitedApplyStage = "I-2" | "I-3" | "I-4" | "I-5";
 type JSeriesLimitedApplyStage = "J-2" | "J-3" | "J-4";
+type KSeriesLimitedApplyStage = "K-2" | "K-3" | "K-4";
 
 const I_SERIES_EXPECTED: Record<ISeriesLimitedApplyStage, {
   workflowGate: ISeriesLimitedApplyStage;
@@ -148,6 +151,56 @@ const J_SERIES_EXPECTED: Record<JSeriesLimitedApplyStage, {
   },
 };
 
+const K_SERIES_EXPECTED: Record<KSeriesLimitedApplyStage, {
+  workflowGate: KSeriesLimitedApplyStage;
+  approvalFileName: string;
+  maxRows: number;
+  primaryScopeRows: number;
+  existingScopedRows: number;
+  insertCandidates: number;
+  updateCandidates: number;
+  deleteCandidates: number;
+  noChangeRows: number;
+  expectedInsertedRows: number;
+}> = {
+  "K-2": {
+    workflowGate: "K-2",
+    approvalFileName: "k2_limited_apply_approval.json",
+    maxRows: 500,
+    primaryScopeRows: 1338,
+    existingScopedRows: 0,
+    insertCandidates: 1338,
+    updateCandidates: 0,
+    deleteCandidates: 0,
+    noChangeRows: 0,
+    expectedInsertedRows: 500,
+  },
+  "K-3": {
+    workflowGate: "K-3",
+    approvalFileName: "k3_limited_apply_approval.json",
+    maxRows: 500,
+    primaryScopeRows: 1338,
+    existingScopedRows: 500,
+    insertCandidates: 838,
+    updateCandidates: 0,
+    deleteCandidates: 0,
+    noChangeRows: 500,
+    expectedInsertedRows: 500,
+  },
+  "K-4": {
+    workflowGate: "K-4",
+    approvalFileName: "k4_limited_apply_approval.json",
+    maxRows: 338,
+    primaryScopeRows: 1338,
+    existingScopedRows: 1000,
+    insertCandidates: 338,
+    updateCandidates: 0,
+    deleteCandidates: 0,
+    noChangeRows: 1000,
+    expectedInsertedRows: 338,
+  },
+};
+
 export type LimitedApplyStage =
   | "G-6B"
   | "G-6D"
@@ -158,7 +211,8 @@ export type LimitedApplyStage =
   | "G-6I"
   | "H-2"
   | ISeriesLimitedApplyStage
-  | JSeriesLimitedApplyStage;
+  | JSeriesLimitedApplyStage
+  | KSeriesLimitedApplyStage;
 
 export interface LimitedApplyStageConfig {
   stage: LimitedApplyStage;
@@ -378,6 +432,48 @@ export const limitedApplyStageConfigs: Record<LimitedApplyStage, LimitedApplySta
     expectedDateFrom: "2026-06-01",
     expectedDateTo: "2026-06-06",
   },
+  "K-2": {
+    stage: "K-2",
+    expectedTargetPartCode: "4",
+    expectedWorkflowGate: K_SERIES_EXPECTED["K-2"].workflowGate,
+    approvalFileName: K_SERIES_EXPECTED["K-2"].approvalFileName,
+    expectedMaxRows: K_SERIES_EXPECTED["K-2"].maxRows,
+    expectedExistingScopedRows: K_SERIES_EXPECTED["K-2"].existingScopedRows,
+    expectedInsertCandidates: K_SERIES_EXPECTED["K-2"].insertCandidates,
+    expectedNoChangeRows: K_SERIES_EXPECTED["K-2"].noChangeRows,
+    requiresExplicitPeriod: true,
+    expectedSourceFileHash: K2_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-07",
+    expectedDateTo: "2026-06-12",
+  },
+  "K-3": {
+    stage: "K-3",
+    expectedTargetPartCode: "4",
+    expectedWorkflowGate: K_SERIES_EXPECTED["K-3"].workflowGate,
+    approvalFileName: K_SERIES_EXPECTED["K-3"].approvalFileName,
+    expectedMaxRows: K_SERIES_EXPECTED["K-3"].maxRows,
+    expectedExistingScopedRows: K_SERIES_EXPECTED["K-3"].existingScopedRows,
+    expectedInsertCandidates: K_SERIES_EXPECTED["K-3"].insertCandidates,
+    expectedNoChangeRows: K_SERIES_EXPECTED["K-3"].noChangeRows,
+    requiresExplicitPeriod: true,
+    expectedSourceFileHash: K2_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-07",
+    expectedDateTo: "2026-06-12",
+  },
+  "K-4": {
+    stage: "K-4",
+    expectedTargetPartCode: "4",
+    expectedWorkflowGate: K_SERIES_EXPECTED["K-4"].workflowGate,
+    approvalFileName: K_SERIES_EXPECTED["K-4"].approvalFileName,
+    expectedMaxRows: K_SERIES_EXPECTED["K-4"].maxRows,
+    expectedExistingScopedRows: K_SERIES_EXPECTED["K-4"].existingScopedRows,
+    expectedInsertCandidates: K_SERIES_EXPECTED["K-4"].insertCandidates,
+    expectedNoChangeRows: K_SERIES_EXPECTED["K-4"].noChangeRows,
+    requiresExplicitPeriod: true,
+    expectedSourceFileHash: K2_EXPECTED_SOURCE_FILE_HASH,
+    expectedDateFrom: "2026-06-07",
+    expectedDateTo: "2026-06-12",
+  },
 };
 
 export const LIMITED_APPLY_STAGE_POLICIES = Object.fromEntries(
@@ -489,6 +585,7 @@ export function validateLimitedApplyApproval(input: unknown): LimitedApplyApprov
   const h2FinalRemainderApproval = approval.stage === "H-2" && workflowGate === H2_FINAL_REMAINDER_WORKFLOW_GATE;
   const iSeriesExpected = getISeriesExpected(approval.stage);
   const jSeriesExpected = getJSeriesExpected(approval.stage);
+  const kSeriesExpected = getKSeriesExpected(approval.stage);
 
   if (!config) blockedReasons.push("APPROVAL_STAGE_MISMATCH");
   if (!config || targetPart !== config.expectedTargetPartCode) blockedReasons.push("APPROVAL_TARGET_PART_MISMATCH");
@@ -508,6 +605,8 @@ export function validateLimitedApplyApproval(input: unknown): LimitedApplyApprov
     validateISeriesApprovalShape(approval, blockedReasons, iSeriesExpected);
   } else if (jSeriesExpected) {
     validateJSeriesApprovalShape(approval, blockedReasons, jSeriesExpected);
+  } else if (kSeriesExpected) {
+    validateKSeriesApprovalShape(approval, blockedReasons, kSeriesExpected);
   } else if (!config || approval.max_rows !== config.expectedMaxRows) {
     blockedReasons.push("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
   }
@@ -548,6 +647,13 @@ function getJSeriesExpected(stage: unknown) {
   return null;
 }
 
+function getKSeriesExpected(stage: unknown) {
+  if (stage === "K-2" || stage === "K-3" || stage === "K-4") {
+    return K_SERIES_EXPECTED[stage];
+  }
+  return null;
+}
+
 function validateISeriesApprovalShape(
   approval: LimitedApplyApproval,
   blockedReasons: string[],
@@ -582,6 +688,36 @@ function validateJSeriesApprovalShape(
   approval: LimitedApplyApproval,
   blockedReasons: string[],
   expected: (typeof J_SERIES_EXPECTED)[JSeriesLimitedApplyStage],
+) {
+  const sourcePreview = approval.source_preview ?? {};
+  if (approval.max_rows !== expected.maxRows) blockedReasons.push("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
+  if (approval.expectedInsertedRows !== expected.expectedInsertedRows) {
+    blockedReasons.push("APPROVAL_EXPECTED_INSERTED_ROWS_MISMATCH");
+  }
+  if (sourcePreview.primaryScopeRows !== expected.primaryScopeRows) {
+    blockedReasons.push("APPROVAL_PRIMARY_SCOPE_ROWS_MISMATCH");
+  }
+  if (sourcePreview.existingScopedRows !== expected.existingScopedRows) {
+    blockedReasons.push("APPROVAL_EXISTING_SCOPED_ROWS_MISMATCH");
+  }
+  if (sourcePreview.insertCandidates !== expected.insertCandidates) {
+    blockedReasons.push("APPROVAL_INSERT_CANDIDATES_MISMATCH");
+  }
+  if (sourcePreview.updateCandidates !== expected.updateCandidates) {
+    blockedReasons.push("APPROVAL_UPDATE_CANDIDATES_MISMATCH");
+  }
+  if (sourcePreview.deleteCandidates !== expected.deleteCandidates) {
+    blockedReasons.push("APPROVAL_DELETE_CANDIDATES_MISMATCH");
+  }
+  if (sourcePreview.noChangeRows !== expected.noChangeRows) {
+    blockedReasons.push("APPROVAL_NO_CHANGE_ROWS_MISMATCH");
+  }
+}
+
+function validateKSeriesApprovalShape(
+  approval: LimitedApplyApproval,
+  blockedReasons: string[],
+  expected: (typeof K_SERIES_EXPECTED)[KSeriesLimitedApplyStage],
 ) {
   const sourcePreview = approval.source_preview ?? {};
   if (approval.max_rows !== expected.maxRows) blockedReasons.push("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
