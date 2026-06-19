@@ -8,6 +8,7 @@ import {
   J2_EXPECTED_SOURCE_FILE_HASH,
   K2_EXPECTED_SOURCE_FILE_HASH,
   L2_EXPECTED_SOURCE_FILE_HASH,
+  M2_EXPECTED_SOURCE_FILE_HASH,
   LIMITED_APPLY_STAGE_POLICIES,
   createLimitedApplySelectionDiagnostics,
   getLimitedApplyStageConfig,
@@ -381,6 +382,59 @@ const l5Approval = {
 
 const lSeriesApprovals = [l2Approval, l3Approval, l4Approval, l5Approval];
 
+const m2Approval = {
+  ...baseApproval,
+  workflowGate: "M-2",
+  stage: "M-2",
+  target_part: "6",
+  test_file_hash: M2_EXPECTED_SOURCE_FILE_HASH,
+  date_from: "2026-06-01",
+  date_to: "2026-06-06",
+  max_rows: 500,
+  expectedInsertedRows: 500,
+  source_preview: {
+    primaryScopeRows: 1359,
+    existingScopedRows: 0,
+    insertCandidates: 1359,
+    updateCandidates: 0,
+    deleteCandidates: 0,
+    noChangeRows: 0,
+  },
+};
+
+const m3Approval = {
+  ...m2Approval,
+  workflowGate: "M-3",
+  stage: "M-3",
+  expectedInsertedRows: 500,
+  source_preview: {
+    primaryScopeRows: 1359,
+    existingScopedRows: 500,
+    insertCandidates: 859,
+    updateCandidates: 0,
+    deleteCandidates: 0,
+    noChangeRows: 500,
+  },
+};
+
+const m4Approval = {
+  ...m2Approval,
+  workflowGate: "M-4",
+  stage: "M-4",
+  max_rows: 359,
+  expectedInsertedRows: 359,
+  source_preview: {
+    primaryScopeRows: 1359,
+    existingScopedRows: 1000,
+    insertCandidates: 359,
+    updateCandidates: 0,
+    deleteCandidates: 0,
+    noChangeRows: 1000,
+  },
+};
+
+const mSeriesApprovals = [m2Approval, m3Approval, m4Approval];
+
 describe("limited apply approval gate", () => {
   it("keeps stage caps and explicit-period policy centralized", () => {
     expect(LIMITED_APPLY_STAGE_POLICIES).toEqual({
@@ -406,6 +460,9 @@ describe("limited apply approval gate", () => {
       "L-3": { maxRows: 500, requiresExplicitPeriod: true },
       "L-4": { maxRows: 500, requiresExplicitPeriod: true },
       "L-5": { maxRows: 46, requiresExplicitPeriod: true },
+      "M-2": { maxRows: 500, requiresExplicitPeriod: true },
+      "M-3": { maxRows: 500, requiresExplicitPeriod: true },
+      "M-4": { maxRows: 359, requiresExplicitPeriod: true },
     });
   });
 
@@ -695,6 +752,55 @@ describe("limited apply approval gate", () => {
     expect(getLimitedApplyStageConfig("L-6")).toBeNull();
   });
 
+  it("recognizes only explicit M-series part-6 limited apply stages", () => {
+    expect(isLimitedApplyStage("M-2")).toBe(true);
+    expect(getLimitedApplyStageConfig("M-2")).toMatchObject({
+      stage: "M-2",
+      expectedTargetPartCode: "6",
+      expectedWorkflowGate: "M-2",
+      approvalFileName: "m2_limited_apply_approval.json",
+      expectedMaxRows: 500,
+      expectedExistingScopedRows: 0,
+      expectedInsertCandidates: 1359,
+      expectedNoChangeRows: 0,
+      requiresExplicitPeriod: true,
+      expectedSourceFileHash: M2_EXPECTED_SOURCE_FILE_HASH,
+      expectedDateFrom: "2026-06-01",
+      expectedDateTo: "2026-06-06",
+    });
+    expect(isLimitedApplyStage("M-3")).toBe(true);
+    expect(getLimitedApplyStageConfig("M-3")).toMatchObject({
+      stage: "M-3",
+      expectedTargetPartCode: "6",
+      expectedWorkflowGate: "M-3",
+      approvalFileName: "m3_limited_apply_approval.json",
+      expectedMaxRows: 500,
+      expectedExistingScopedRows: 500,
+      expectedInsertCandidates: 859,
+      expectedNoChangeRows: 500,
+      requiresExplicitPeriod: true,
+      expectedSourceFileHash: M2_EXPECTED_SOURCE_FILE_HASH,
+    });
+    expect(isLimitedApplyStage("M-4")).toBe(true);
+    expect(getLimitedApplyStageConfig("M-4")).toMatchObject({
+      stage: "M-4",
+      expectedTargetPartCode: "6",
+      expectedWorkflowGate: "M-4",
+      approvalFileName: "m4_limited_apply_approval.json",
+      expectedMaxRows: 359,
+      expectedExistingScopedRows: 1000,
+      expectedInsertCandidates: 359,
+      expectedNoChangeRows: 1000,
+      requiresExplicitPeriod: true,
+      expectedSourceFileHash: M2_EXPECTED_SOURCE_FILE_HASH,
+    });
+    expect(isLimitedApplyStage("M-0")).toBe(false);
+    expect(isLimitedApplyStage("M-1")).toBe(false);
+    expect(isLimitedApplyStage("M-5")).toBe(false);
+    expect(isLimitedApplyStage("M-*")).toBe(false);
+    expect(getLimitedApplyStageConfig("M-5")).toBeNull();
+  });
+
   it("accepts only the G-6B max-3 insert-only approval shape", () => {
     expect(validateLimitedApplyApproval(baseApproval)).toEqual({
       ok: true,
@@ -807,6 +913,16 @@ describe("limited apply approval gate", () => {
 
   it("accepts the L-series exact insert-only approval shapes", () => {
     for (const approval of lSeriesApprovals) {
+      expect(validateLimitedApplyApproval(approval)).toEqual({
+        ok: true,
+        blockedReasons: [],
+        approval,
+      });
+    }
+  });
+
+  it("accepts the M-series exact insert-only approval shapes", () => {
+    for (const approval of mSeriesApprovals) {
       expect(validateLimitedApplyApproval(approval)).toEqual({
         ok: true,
         blockedReasons: [],
@@ -1251,6 +1367,66 @@ describe("limited apply approval gate", () => {
     }
   });
 
+  it("blocks M-series approvals outside maxRows, insert-only, exact hash, exact period, and workflow constraints", () => {
+    for (const approval of mSeriesApprovals) {
+      const wrongWorkflowGate = validateLimitedApplyApproval({
+        ...approval,
+        workflowGate: `${approval.workflowGate}-B`,
+      });
+      const missingWorkflowGate = validateLimitedApplyApproval({
+        ...approval,
+        workflowGate: undefined,
+      });
+      const aboveLimit = validateLimitedApplyApproval({
+        ...approval,
+        max_rows: approval.max_rows + 1,
+      });
+      const belowLimit = validateLimitedApplyApproval({
+        ...approval,
+        max_rows: approval.max_rows - 1,
+      });
+      const updateOperation = validateLimitedApplyApproval({
+        ...approval,
+        allowed_operations: ["update"],
+      });
+      const hashMismatch = validateLimitedApplyApproval({
+        ...approval,
+        test_file_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      });
+      const periodMismatch = validateLimitedApplyApproval({
+        ...approval,
+        date_to: "2026-06-07",
+      });
+      const wrongPart = validateLimitedApplyApproval({
+        ...approval,
+        target_part: "11",
+      });
+      const fullApply = validateLimitedApplyApproval({
+        ...approval,
+        full_apply_approved: true,
+      });
+
+      expect(wrongWorkflowGate.ok).toBe(false);
+      expect(wrongWorkflowGate.blockedReasons).toContain("APPROVAL_WORKFLOW_GATE_UNSUPPORTED");
+      expect(missingWorkflowGate.ok).toBe(false);
+      expect(missingWorkflowGate.blockedReasons).toContain("APPROVAL_WORKFLOW_GATE_UNSUPPORTED");
+      expect(aboveLimit.ok).toBe(false);
+      expect(aboveLimit.blockedReasons).toContain("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
+      expect(belowLimit.ok).toBe(false);
+      expect(belowLimit.blockedReasons).toContain("APPROVAL_MAX_ROWS_EXCEEDS_LIMIT");
+      expect(updateOperation.ok).toBe(false);
+      expect(updateOperation.blockedReasons).toContain("APPROVAL_ALLOWED_OPERATIONS_NOT_INSERT_ONLY");
+      expect(hashMismatch.ok).toBe(false);
+      expect(hashMismatch.blockedReasons).toContain("APPROVAL_FILE_HASH_MISMATCH");
+      expect(periodMismatch.ok).toBe(false);
+      expect(periodMismatch.blockedReasons).toContain("APPROVAL_DATE_RANGE_MISMATCH");
+      expect(wrongPart.ok).toBe(false);
+      expect(wrongPart.blockedReasons).toContain("APPROVAL_TARGET_PART_MISMATCH");
+      expect(fullApply.ok).toBe(false);
+      expect(fullApply.blockedReasons).toContain("APPROVAL_FULL_APPLY_ENABLED");
+    }
+  });
+
   it("blocks I-series approvals outside the exact expected count contract", () => {
     for (const approval of iSeriesApprovals) {
       const missingExpectedInsertedRows = validateLimitedApplyApproval({
@@ -1451,6 +1627,72 @@ describe("limited apply approval gate", () => {
 
   it("blocks L-series approvals outside the exact expected count contract", () => {
     for (const approval of lSeriesApprovals) {
+      const wrongExpectedInsertedRows = validateLimitedApplyApproval({
+        ...approval,
+        expectedInsertedRows: undefined,
+      });
+      const wrongPrimaryRows = validateLimitedApplyApproval({
+        ...approval,
+        source_preview: {
+          ...approval.source_preview,
+          primaryScopeRows: approval.source_preview.primaryScopeRows - 1,
+        },
+      });
+      const wrongExistingRows = validateLimitedApplyApproval({
+        ...approval,
+        source_preview: {
+          ...approval.source_preview,
+          existingScopedRows: approval.source_preview.existingScopedRows + 1,
+        },
+      });
+      const wrongInsertCandidates = validateLimitedApplyApproval({
+        ...approval,
+        source_preview: {
+          ...approval.source_preview,
+          insertCandidates: approval.source_preview.insertCandidates - 1,
+        },
+      });
+      const wrongUpdateCandidates = validateLimitedApplyApproval({
+        ...approval,
+        source_preview: {
+          ...approval.source_preview,
+          updateCandidates: 1,
+        },
+      });
+      const wrongDeleteCandidates = validateLimitedApplyApproval({
+        ...approval,
+        source_preview: {
+          ...approval.source_preview,
+          deleteCandidates: 1,
+        },
+      });
+      const wrongNoChangeRows = validateLimitedApplyApproval({
+        ...approval,
+        source_preview: {
+          ...approval.source_preview,
+          noChangeRows: approval.source_preview.noChangeRows + 1,
+        },
+      });
+
+      expect(wrongExpectedInsertedRows.ok).toBe(false);
+      expect(wrongExpectedInsertedRows.blockedReasons).toContain("APPROVAL_EXPECTED_INSERTED_ROWS_MISMATCH");
+      expect(wrongPrimaryRows.ok).toBe(false);
+      expect(wrongPrimaryRows.blockedReasons).toContain("APPROVAL_PRIMARY_SCOPE_ROWS_MISMATCH");
+      expect(wrongExistingRows.ok).toBe(false);
+      expect(wrongExistingRows.blockedReasons).toContain("APPROVAL_EXISTING_SCOPED_ROWS_MISMATCH");
+      expect(wrongInsertCandidates.ok).toBe(false);
+      expect(wrongInsertCandidates.blockedReasons).toContain("APPROVAL_INSERT_CANDIDATES_MISMATCH");
+      expect(wrongUpdateCandidates.ok).toBe(false);
+      expect(wrongUpdateCandidates.blockedReasons).toContain("APPROVAL_UPDATE_CANDIDATES_MISMATCH");
+      expect(wrongDeleteCandidates.ok).toBe(false);
+      expect(wrongDeleteCandidates.blockedReasons).toContain("APPROVAL_DELETE_CANDIDATES_MISMATCH");
+      expect(wrongNoChangeRows.ok).toBe(false);
+      expect(wrongNoChangeRows.blockedReasons).toContain("APPROVAL_NO_CHANGE_ROWS_MISMATCH");
+    }
+  });
+
+  it("blocks M-series approvals outside the exact expected count contract", () => {
+    for (const approval of mSeriesApprovals) {
       const wrongExpectedInsertedRows = validateLimitedApplyApproval({
         ...approval,
         expectedInsertedRows: undefined,
@@ -2397,6 +2639,55 @@ describe("limited apply approval gate", () => {
     }
   });
 
+  it("blocks M-series dryRun=false entry when the local approval file is missing", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "cn-sales-m-series-approval-"));
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+
+    try {
+      for (const stage of ["M-2", "M-3", "M-4"] as const) {
+        await expect(loadLimitedApplyApproval(stage)).resolves.toEqual({
+          ok: false,
+          blockedReasons: ["APPROVAL_FILE_MISSING_OR_UNREADABLE"],
+        });
+      }
+    } finally {
+      cwdSpy.mockRestore();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("allows M-series stages when aggregate dry-run diff matches each part-6 1-6 batch scope", () => {
+    for (const approval of mSeriesApprovals) {
+      const result = validateLimitedApplyPreconditions({
+        approval,
+        sourceFileHash: approval.test_file_hash,
+        selectedPartCode: "6",
+        syncDiff: diffPlan({
+          partCode: "6",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-06",
+          normalRows: 1359,
+          excludedRows: 148,
+          existingScopedRows: approval.source_preview.existingScopedRows,
+          insertCandidates: approval.source_preview.insertCandidates,
+          noChangeRows: approval.source_preview.noChangeRows,
+        }),
+        requestScope: {
+          partCode: "6",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-06",
+          scopeSource: "explicit-request",
+        },
+        requireExplicitRequestScope: true,
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        blockedReasons: [],
+      });
+    }
+  });
+
   it("blocks G-6F without an explicit request period scope", () => {
     const result = validateLimitedApplyPreconditions({
       approval: g6fApproval,
@@ -2603,6 +2894,36 @@ describe("limited apply approval gate", () => {
         }),
         requestScope: {
           partCode: "5",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-06",
+          scopeSource: "derived",
+        },
+        requireExplicitRequestScope: true,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.blockedReasons).toContain("REQUEST_PERIOD_SCOPE_REQUIRED");
+    }
+  });
+
+  it("blocks M-series stages without an explicit request period scope", () => {
+    for (const approval of mSeriesApprovals) {
+      const result = validateLimitedApplyPreconditions({
+        approval,
+        sourceFileHash: approval.test_file_hash,
+        selectedPartCode: "6",
+        syncDiff: diffPlan({
+          partCode: "6",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-06",
+          normalRows: 1359,
+          excludedRows: 148,
+          existingScopedRows: approval.source_preview.existingScopedRows,
+          insertCandidates: approval.source_preview.insertCandidates,
+          noChangeRows: approval.source_preview.noChangeRows,
+        }),
+        requestScope: {
+          partCode: "6",
           dateFrom: "2026-06-01",
           dateTo: "2026-06-06",
           scopeSource: "derived",
@@ -3020,6 +3341,89 @@ describe("limited apply approval gate", () => {
     }
   });
 
+  it("blocks M-series stages when the request, part, hash, or dry-run counts drift before write", () => {
+    for (const approval of mSeriesApprovals) {
+      const requestMismatch = validateLimitedApplyPreconditions({
+        approval,
+        sourceFileHash: approval.test_file_hash,
+        selectedPartCode: "6",
+        syncDiff: diffPlan({
+          partCode: "6",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-06",
+          normalRows: 1359,
+          excludedRows: 148,
+          existingScopedRows: approval.source_preview.existingScopedRows,
+          insertCandidates: approval.source_preview.insertCandidates,
+          noChangeRows: approval.source_preview.noChangeRows,
+        }),
+        requestScope: {
+          partCode: "6",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-07",
+          scopeSource: "explicit-request",
+        },
+        requireExplicitRequestScope: true,
+      });
+      const wrongPart = validateLimitedApplyPreconditions({
+        approval,
+        sourceFileHash: approval.test_file_hash,
+        selectedPartCode: "11",
+        syncDiff: diffPlan({
+          partCode: "6",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-06",
+          normalRows: 1359,
+          existingScopedRows: approval.source_preview.existingScopedRows,
+          insertCandidates: approval.source_preview.insertCandidates,
+          noChangeRows: approval.source_preview.noChangeRows,
+        }),
+      });
+      const wrongHash = validateLimitedApplyPreconditions({
+        approval,
+        sourceFileHash: L2_EXPECTED_SOURCE_FILE_HASH,
+        selectedPartCode: "6",
+        syncDiff: diffPlan({
+          partCode: "6",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-06",
+          normalRows: 1359,
+          existingScopedRows: approval.source_preview.existingScopedRows,
+          insertCandidates: approval.source_preview.insertCandidates,
+          noChangeRows: approval.source_preview.noChangeRows,
+        }),
+      });
+      const wrongCounts = validateLimitedApplyPreconditions({
+        approval,
+        sourceFileHash: approval.test_file_hash,
+        selectedPartCode: "6",
+        syncDiff: diffPlan({
+          partCode: "6",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-06",
+          normalRows: 1358,
+          existingScopedRows: approval.source_preview.existingScopedRows + 1,
+          insertCandidates: approval.source_preview.insertCandidates - 1,
+          noChangeRows: approval.source_preview.noChangeRows + 1,
+        }),
+      });
+
+      expect(requestMismatch.ok).toBe(false);
+      expect(requestMismatch.blockedReasons).toContain("REQUEST_SCOPE_DATE_MISMATCH");
+      expect(wrongPart.ok).toBe(false);
+      expect(wrongPart.blockedReasons).toContain("TARGET_PART_MISMATCH");
+      expect(wrongHash.ok).toBe(false);
+      expect(wrongHash.blockedReasons).toContain("SOURCE_FILE_HASH_MISMATCH");
+      expect(wrongCounts.ok).toBe(false);
+      expect(wrongCounts.blockedReasons).toEqual(expect.arrayContaining([
+        "PRIMARY_SCOPE_ROWS_MISMATCH",
+        "EXISTING_SCOPED_ROWS_MISMATCH",
+        "INSERT_CANDIDATES_MISMATCH",
+        "NO_CHANGE_ROWS_MISMATCH",
+      ]));
+    }
+  });
+
   it("blocks G-6F when update, delete, warning, or error rows appear before write", () => {
     const result = validateLimitedApplyPreconditions({
       approval: g6fApproval,
@@ -3240,6 +3644,40 @@ describe("limited apply approval gate", () => {
           dateTo: "2026-06-06",
           normalRows: 1546,
           excludedRows: 218,
+          existingScopedRows: approval.source_preview.existingScopedRows,
+          insertCandidates: approval.source_preview.insertCandidates,
+          noChangeRows: approval.source_preview.noChangeRows,
+          updateCandidates: 1,
+          deleteCandidates: 1,
+          warningRows: 1,
+          errorRows: 1,
+        }),
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.blockedReasons).toEqual(expect.arrayContaining([
+        "UPDATE_CANDIDATES_MISMATCH",
+        "DELETE_CANDIDATES_MISMATCH",
+        "UPDATE_CANDIDATE_PRESENT",
+        "DELETE_CANDIDATE_PRESENT",
+        "WARNING_ROWS_PRESENT",
+        "ERROR_ROWS_PRESENT",
+      ]));
+    }
+  });
+
+  it("blocks M-series stages when update, delete, warning, or error rows appear before write", () => {
+    for (const approval of mSeriesApprovals) {
+      const result = validateLimitedApplyPreconditions({
+        approval,
+        sourceFileHash: approval.test_file_hash,
+        selectedPartCode: "6",
+        syncDiff: diffPlan({
+          partCode: "6",
+          dateFrom: "2026-06-01",
+          dateTo: "2026-06-06",
+          normalRows: 1359,
+          excludedRows: 148,
           existingScopedRows: approval.source_preview.existingScopedRows,
           insertCandidates: approval.source_preview.insertCandidates,
           noChangeRows: approval.source_preview.noChangeRows,
