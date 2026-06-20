@@ -15,8 +15,13 @@ describe("web import role scope and approval static contract", () => {
     expect(dryRunRouteSource).toContain("validateSalesPartAccess");
   });
 
-  it("keeps sync execution unimplemented", () => {
-    expect(existsSync(join(process.cwd(), "src", "app", "api", "sales-import", "sync-scope", "route.ts"))).toBe(false);
+  it("keeps sync execution disabled and no-write", () => {
+    const syncScopeRoutePath = join(process.cwd(), "src", "app", "api", "sales-import", "sync-scope", "route.ts");
+    expect(existsSync(syncScopeRoutePath)).toBe(true);
+    const syncScopeRouteSource = readFileSync(syncScopeRoutePath, "utf8");
+    expect(syncScopeRouteSource).toContain("approval_required");
+    expect(syncScopeRouteSource).toContain("syncEnabled: false");
+    expect(syncScopeRouteSource).not.toMatch(/\.from\(|insert\(|upsert\(|update\(|delete\(|rpc\(/);
     expect(previewRouteSource).not.toContain("syncScope");
     expect(dryRunRouteSource).not.toContain("limitedInsertLedgerRows");
     expect(dryRunRouteSource).not.toMatch(/insert\(|upsert\(|update\(|delete\(|rpc\(/);

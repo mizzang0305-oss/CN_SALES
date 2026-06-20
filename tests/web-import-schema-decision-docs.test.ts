@@ -37,8 +37,11 @@ describe("W-5A schema decision and sync approval packet docs", () => {
     expect(approvalPacket).toContain("DB write implemented: no");
   });
 
-  it("does not add a sync-scope endpoint or enabled sync UI", () => {
-    expect(existsSync(syncScopeRoutePath)).toBe(false);
+  it("adds only a disabled sync-scope endpoint and no enabled sync UI", () => {
+    expect(existsSync(syncScopeRoutePath)).toBe(true);
+    const syncScopeRoute = readFileSync(syncScopeRoutePath, "utf8");
+    expect(syncScopeRoute).toContain("approval_required");
+    expect(syncScopeRoute).toContain("syncEnabled: false");
     expect(importClientSource).toContain('data-sync-disabled="true"');
     expect(importClientSource).not.toContain("/api/sales-import/sync-scope");
     expect(importClientSource).not.toContain("runSync");

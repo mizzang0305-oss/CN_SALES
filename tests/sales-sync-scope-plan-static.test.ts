@@ -6,9 +6,14 @@ const syncScopePlanSource = readFileSync(join(process.cwd(), "src", "lib", "impo
 const importClientSource = readFileSync(join(process.cwd(), "src", "components", "web-import", "sales-import-preview-client.tsx"), "utf8");
 
 describe("sales sync-scope plan static safety", () => {
-  it("does not add a sync-scope route or executable write path", () => {
-    expect(existsSync(join(process.cwd(), "src", "app", "api", "sales-import", "sync-scope", "route.ts"))).toBe(false);
+  it("keeps the sync-scope route disabled and without an executable write path", () => {
+    const routePath = join(process.cwd(), "src", "app", "api", "sales-import", "sync-scope", "route.ts");
+    expect(existsSync(routePath)).toBe(true);
+    const routeSource = readFileSync(routePath, "utf8");
+    expect(routeSource).toContain("approval_required");
+    expect(routeSource).toContain("syncEnabled: false");
     expect(syncScopePlanSource).not.toMatch(/\.from\(|insert\(|upsert\(|update\(|delete\(|rpc\(/);
+    expect(routeSource).not.toMatch(/\.from\(|insert\(|upsert\(|update\(|delete\(|rpc\(/);
     expect(syncScopePlanSource).not.toContain("createImportService");
     expect(syncScopePlanSource).not.toContain("SupabaseUploadStorageAdapter");
     expect(syncScopePlanSource).not.toContain("limitedInsertLedgerRows");
