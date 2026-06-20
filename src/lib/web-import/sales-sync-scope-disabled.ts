@@ -74,8 +74,8 @@ export function createDisabledSalesSyncScopeResponse(input: SalesSyncScopeDisabl
   approvalContract?.blockedReasons.forEach((reason) => blockedReasons.add(reason));
 
   const dryRun = toCompleteDryRun(input.dryRun);
-  const syncPlanChecked = Boolean(approvalContract?.ok && dryRun);
-  const syncPlan = syncPlanChecked
+  const canCheckSyncPlan = Boolean(approvalContract?.ok && dryRun);
+  const syncPlan = approvalContract?.ok && dryRun
     ? buildSalesSyncScopePlan({
       approval: input.approval,
       dryRun,
@@ -99,7 +99,7 @@ export function createDisabledSalesSyncScopeResponse(input: SalesSyncScopeDisabl
       roleScopeOk: roleScope?.ok ?? false,
       approvalContractChecked,
       approvalContractOk: approvalContract?.ok ?? false,
-      syncPlanChecked,
+      syncPlanChecked: canCheckSyncPlan,
       syncPlanOk: syncPlan?.ok ?? false,
       blockedReasons: [...blockedReasons],
     },
