@@ -16,6 +16,11 @@ describe("web import dashboard readiness state", () => {
     expect(importClientSource).toContain("stage: W-6 disabled sync contract");
     expect(importClientSource).toContain("WEB_ERP_XLS_SYNC_SCHEMA_APPLY_APPROVED required");
     expect(importClientSource).toContain("WEB_ERP_XLS_SYNC_EXECUTE_APPROVED required");
+    expect(importClientSource).toContain('data-change-summary="aggregate-only"');
+    expect(importClientSource).toContain("Operator readiness");
+    expect(importClientSource).toContain("changeSummary: insert");
+    expect(importClientSource).toContain("amountDelta:");
+    expect(importClientSource).toContain("raw row table: not available");
   });
 
   it("keeps the UI from calling sync, apply, rollback, or raw row flows", () => {

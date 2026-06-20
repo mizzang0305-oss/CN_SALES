@@ -364,6 +364,7 @@ export function SalesImportPreviewClient() {
             {dryRun ? (
               <div className="space-y-3 rounded-md border border-slate-200 p-3">
                 <div className="text-[16px] font-semibold text-slate-900">Dry-run</div>
+                <ChangeSummaryStrip dryRun={dryRun} />
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   <Metric label="Primary scope rows" value={formatNumber(dryRun.primaryScopeRows)} />
                   <Metric label="Existing scoped rows" value={formatNumber(dryRun.existingScopedRows)} />
@@ -405,6 +406,17 @@ export function SalesImportPreviewClient() {
                     "syncEnabled: false",
                   ]}
                 />
+                <InfoPanel
+                  title="Operator readiness"
+                  lines={[
+                    `permission: ${dryRun.permission.role} allowed for ${dryRun.permission.allowedParts.join(", ") || "-"}`,
+                    `changeSummary: insert ${formatNumber(dryRun.insertCandidates)}, update ${formatNumber(dryRun.updateCandidates)}, removed ${formatNumber(dryRun.removedFromCurrentCandidates)}, noChange ${formatNumber(dryRun.noChangeRows)}`,
+                    `amountDelta: ${formatWon(dryRun.amountDelta)}`,
+                    `planReady: ${String(dryRun.planReady)}`,
+                    "raw row table: not available",
+                    "sync execution: disabled until explicit approval",
+                  ]}
+                />
               </div>
             ) : null}
           </div>
@@ -436,6 +448,30 @@ function InfoPanel({ title, lines }: { title: string; lines: string[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function ChangeSummaryStrip({ dryRun }: { dryRun: DryRunResponse }) {
+  const summaryCards = [
+    { label: "Insert", value: formatNumber(dryRun.insertCandidates), tone: "ready" as const },
+    { label: "Update", value: formatNumber(dryRun.updateCandidates), tone: "waiting" as const },
+    { label: "Removed", value: formatNumber(dryRun.removedFromCurrentCandidates), tone: "blocked" as const },
+    { label: "No change", value: formatNumber(dryRun.noChangeRows), tone: "ready" as const },
+    { label: "Amount delta", value: formatWon(dryRun.amountDelta), tone: dryRun.amountDelta === 0 ? "ready" as const : "waiting" as const },
+  ];
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5" data-change-summary="aggregate-only">
+      {summaryCards.map((item) => (
+        <div key={item.label} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="text-[13px] font-medium text-slate-500">{item.label}</div>
+          <div className="mt-1 text-[18px] font-semibold text-slate-950">{item.value}</div>
+          <div className="mt-2">
+            <StatusBadge label="state" value={item.tone} tone={item.tone} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
