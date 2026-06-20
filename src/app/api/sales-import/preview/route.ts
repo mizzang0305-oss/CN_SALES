@@ -2,13 +2,12 @@ import { NextResponse } from "next/server";
 import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-data";
 import { hashUploadFile, toOperationalPreviewSummary } from "@/lib/import/preview-checksum";
 import { createPreviewOnlyImportService } from "@/lib/import/service-factory";
+import { parseManagedPartCodes, validateSalesPartAccess } from "@/lib/auth/part-access";
 import {
   createSalesImportPreviewResponse,
   deriveSalesImportPreviewPeriod,
   isSupportedSalesImportPreviewFile,
-  parseManagedPartCodes,
   resolveSalesImportPreviewPart,
-  validateSalesImportPreviewAccess,
 } from "@/lib/web-import/sales-preview";
 
 export const runtime = "nodejs";
@@ -37,7 +36,7 @@ export async function POST(request: Request) {
     const preflightPart = filePartCode || selectedPartCode;
 
     if (preflightPart) {
-      const access = validateSalesImportPreviewAccess({ role, partCode: preflightPart, managedParts });
+      const access = validateSalesPartAccess({ role, partCode: preflightPart, managedParts });
       if (!access.ok) return forbiddenPreviewResponse(access.blockedReasons, access.allowedParts);
     }
 
@@ -62,7 +61,7 @@ export async function POST(request: Request) {
       preview,
       operationalSummary,
     });
-    const access = validateSalesImportPreviewAccess({
+    const access = validateSalesPartAccess({
       role,
       partCode: resolvedPart.part,
       managedParts,

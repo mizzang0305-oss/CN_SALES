@@ -5,6 +5,7 @@ import { deriveLedgerSyncScope, planLedgerSyncDiff } from "@/lib/import/sync-dif
 import { createLedgerSyncRows } from "@/lib/import/sync-key";
 import { hashUploadFile, toOperationalPreviewSummary } from "@/lib/import/preview-checksum";
 import { createPreviewOnlyImportService } from "@/lib/import/service-factory";
+import { parseManagedPartCodes, validateSalesPartAccess } from "@/lib/auth/part-access";
 import {
   createSalesImportDryRunResponse,
   sumLedgerSyncAmount,
@@ -15,9 +16,7 @@ import {
   deriveSalesImportFilenamePeriod,
   deriveSalesImportPreviewPeriod,
   isSupportedSalesImportPreviewFile,
-  parseManagedPartCodes,
   resolveSalesImportPreviewPart,
-  validateSalesImportPreviewAccess,
 } from "@/lib/web-import/sales-preview";
 
 export const runtime = "nodejs";
@@ -53,7 +52,7 @@ export async function POST(request: Request) {
     }
 
     const preflightAccess = contract.part
-      ? validateSalesImportPreviewAccess({ role, partCode: contract.part, managedParts })
+      ? validateSalesPartAccess({ role, partCode: contract.part, managedParts })
       : null;
     if (preflightAccess && !preflightAccess.ok) return forbiddenDryRunResponse(preflightAccess.blockedReasons, preflightAccess.allowedParts);
 
@@ -78,7 +77,7 @@ export async function POST(request: Request) {
       preview,
       operationalSummary,
     });
-    const access = validateSalesImportPreviewAccess({ role, partCode: resolvedPart.part, managedParts });
+    const access = validateSalesPartAccess({ role, partCode: resolvedPart.part, managedParts });
     if (!access.ok) return forbiddenDryRunResponse(access.blockedReasons, access.allowedParts);
 
     const contractValidation = validateSalesImportDryRunContract({
