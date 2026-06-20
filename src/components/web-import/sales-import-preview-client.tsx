@@ -367,6 +367,19 @@ export function SalesImportPreviewClient() {
                   />
                   <InfoPanel title="Dry-run blockers" lines={[dryRun.blockedReasons.join(", ") || "-"]} />
                 </div>
+                <InfoPanel
+                  title="Current view sync plan"
+                  lines={[
+                    "status: W-5 approval required",
+                    `insert: ${formatNumber(dryRun.insertCandidates)}`,
+                    `update: ${formatNumber(dryRun.updateCandidates)}`,
+                    `removedFromCurrent: ${formatNumber(dryRun.removedFromCurrentCandidates)}`,
+                    `noChange: ${formatNumber(dryRun.noChangeRows)}`,
+                    `amountDelta: ${formatWon(dryRun.amountDelta)}`,
+                    "physicalDelete: false",
+                    "syncEnabled: false",
+                  ]}
+                />
               </div>
             ) : null}
           </div>
