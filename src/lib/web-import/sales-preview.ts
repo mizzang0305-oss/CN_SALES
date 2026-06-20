@@ -129,21 +129,27 @@ export function deriveSalesImportPreviewPeriod(input: {
   if (directStart && directEnd) return { periodStart: directStart, periodEnd: directEnd };
 
   const month = normalizePeriodMonth(input.periodMonth) ?? "2026-06";
-  const fileRange = String(input.fileName ?? "").match(/(\d{1,2})\s*(?:~|-|to)\s*(\d{1,2})\s*(?:\uC77C|day)?/i);
-  if (fileRange) {
-    const startDay = Number(fileRange[1]);
-    const endDay = Number(fileRange[2]);
-    if (isValidDay(startDay) && isValidDay(endDay) && startDay <= endDay) {
-      return {
-        periodStart: `${month}-${String(startDay).padStart(2, "0")}`,
-        periodEnd: `${month}-${String(endDay).padStart(2, "0")}`,
-      };
-    }
-  }
+  const filenamePeriod = deriveSalesImportFilenamePeriod({ fileName: input.fileName, periodMonth: month });
+  if (filenamePeriod) return filenamePeriod;
 
   return {
     periodStart: directStart ?? `${month}-01`,
     periodEnd: directEnd ?? `${month}-30`,
+  };
+}
+
+export function deriveSalesImportFilenamePeriod(input: { fileName?: string | null; periodMonth?: string | null }) {
+  const month = normalizePeriodMonth(input.periodMonth) ?? "2026-06";
+  const fileRange = String(input.fileName ?? "").match(/(\d{1,2})\s*(?:~|-|to)\s*(\d{1,2})\s*(?:\uC77C|day)?/i);
+  if (!fileRange) return null;
+
+  const startDay = Number(fileRange[1]);
+  const endDay = Number(fileRange[2]);
+  if (!isValidDay(startDay) || !isValidDay(endDay) || startDay > endDay) return null;
+
+  return {
+    periodStart: `${month}-${String(startDay).padStart(2, "0")}`,
+    periodEnd: `${month}-${String(endDay).padStart(2, "0")}`,
   };
 }
 

@@ -7,7 +7,7 @@ const confirmRouteSource = readFileSync(join(process.cwd(), "src", "app", "api",
 
 describe("sync existing row reader safety", () => {
   it("uses explicit read-only ledger row columns without source payload columns or write calls", () => {
-    expect(readerSource).toContain('const existingLedgerRowsColumns = "id, row_index, ledger_date, row_type, identity_hash, content_hash"');
+    expect(readerSource).toContain('const existingLedgerRowsColumns = "id, row_index, ledger_date, row_type, identity_hash, content_hash, sales_amount, receipt_amount, receipt_discount"');
     expect(readerSource).toContain("select(existingLedgerRowsColumns, { count: \"exact\" })");
     expect(readerSource).not.toContain("raw_row_json");
     expect(readerSource).not.toContain("customer_name");

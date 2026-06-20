@@ -34,6 +34,6 @@ describe("sales import preview static safety", () => {
     expect(salesPreviewClientSource).toContain('accept=".xls,.xlsx"');
     expect(salesPreviewClientSource).not.toContain("/api/uploads/confirm");
     expect(salesPreviewClientSource).not.toContain("rollback");
-    expect(salesPreviewClientSource).not.toContain("dry-run");
+    expect(salesPreviewClientSource).not.toContain("sync-scope");
   });
 });

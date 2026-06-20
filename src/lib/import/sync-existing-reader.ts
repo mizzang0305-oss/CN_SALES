@@ -7,7 +7,7 @@ import type { LedgerRowType } from "@/lib/types";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const existingLedgerRowsPageSize = 500;
 const existingLedgerRowsMaxPages = 20;
-const existingLedgerRowsColumns = "id, row_index, ledger_date, row_type, identity_hash, content_hash";
+const existingLedgerRowsColumns = "id, row_index, ledger_date, row_type, identity_hash, content_hash, sales_amount, receipt_amount, receipt_discount";
 
 export interface ExistingLedgerRowsReadDiagnostics {
   paged: true;
@@ -96,6 +96,7 @@ export async function readExistingLedgerRowsForSync(scope: LedgerSyncScope): Pro
       ledgerDate: String(row.ledger_date ?? scope.dateTo),
       rowType: row.row_type as LedgerRowType,
       rowIndex: Number(row.row_index ?? 0),
+      amountTotal: Number(row.sales_amount ?? 0) + Number(row.receipt_amount ?? 0) + Number(row.receipt_discount ?? 0),
     })));
 
     if (pageRows.length < existingLedgerRowsPageSize || (expectedCount !== null && rows.length >= expectedCount)) {

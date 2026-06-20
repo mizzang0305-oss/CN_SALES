@@ -31,6 +31,7 @@ export interface LedgerSyncRow {
   rowType: LedgerRowType;
   rowIndex: number;
   syncOrdinal?: number;
+  amountTotal?: number;
 }
 
 export function createLedgerIdentitySyncRows(
@@ -81,6 +82,7 @@ export function createLedgerSyncRows(rows: Array<LedgerSyncSourceRow | ParsedLed
         rowType: row.rowType,
         rowIndex: row.rowIndex,
         syncOrdinal: occurrenceIndexWithinNaturalKey,
+        amountTotal: row.salesAmount + row.receiptAmount + row.receiptDiscount,
       };
     });
   }

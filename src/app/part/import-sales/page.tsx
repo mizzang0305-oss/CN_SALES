@@ -4,7 +4,7 @@ import { SalesImportPreviewClient } from "@/components/web-import/sales-import-p
 export default function PartImportSalesPage() {
   return (
     <AppShell activePath="/part/import-sales">
-      <PageHeader title="Part sales import" description="Preview ERP XLS aggregates before any dry-run or sync phase." />
+      <PageHeader title="Part sales import" description="Preview ERP XLS aggregates and run read-only dry-run checks." />
       <SalesImportPreviewClient />
     </AppShell>
   );
