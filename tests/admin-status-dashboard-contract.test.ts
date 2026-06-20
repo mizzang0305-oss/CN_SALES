@@ -37,12 +37,13 @@ describe("admin status dashboard aggregate contract", () => {
   });
 
   it("marks the plan unready when a part returns rows", () => {
+    const unsafeRawRowsReturned = Boolean("unsafe raw rows") as false;
     const contract: AdminStatusDashboardContract = {
       ...adminStatusDashboardMockViewModel,
       parts: [
         {
           ...adminStatusDashboardMockViewModel.parts[0],
-          rawRowsReturned: true as false,
+          rawRowsReturned: unsafeRawRowsReturned,
         },
       ],
     };
