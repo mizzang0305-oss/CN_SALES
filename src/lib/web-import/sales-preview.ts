@@ -1,28 +1,18 @@
 import { extractPartCodeFromText, normalizePartCode } from "@/lib/import/master-data";
 import type { OperationalPreviewSummary } from "@/lib/import/preview-checksum";
 import type { ImportPreviewRecord } from "@/lib/import/types";
+import type { SalesImportRole, SalesPartAccessResult } from "@/lib/auth/part-access";
 
-export const salesImportPreviewParts = ["1", "4", "5", "6", "7", "9", "10", "11"] as const;
+export {
+  getAllowedSalesPartsForRole as getSalesImportPreviewAllowedParts,
+  normalizeSalesImportRole as normalizeSalesImportPreviewRole,
+  parseManagedPartCodes,
+  supportedSalesPartCodes as salesImportPreviewParts,
+  validateSalesPartAccess as validateSalesImportPreviewAccess,
+} from "@/lib/auth/part-access";
 
-export type SalesImportPreviewRole =
-  | "SALES_REP_PART_1"
-  | "SALES_REP_PART_4"
-  | "SALES_REP_PART_5"
-  | "SALES_REP_PART_6"
-  | "SALES_REP_PART_7"
-  | "SALES_REP_PART_9"
-  | "SALES_REP_PART_10"
-  | "SALES_REP_PART_11"
-  | "PART_LEAD"
-  | "ADMIN";
-
-export type SalesImportPreviewAccessResult = {
-  ok: boolean;
-  role: SalesImportPreviewRole | "";
-  partCode: string;
-  allowedParts: string[];
-  blockedReasons: string[];
-};
+export type SalesImportPreviewRole = SalesImportRole;
+export type SalesImportPreviewAccessResult = SalesPartAccessResult;
 
 export type SalesImportPreviewResponse = {
   ok: true;
@@ -40,7 +30,7 @@ export type SalesImportPreviewResponse = {
   errorRows: number;
   rawRowsReturned: false;
   permission: {
-    role: SalesImportPreviewRole | "";
+    role: SalesImportRole | "";
     allowedParts: string[];
     crossPartBlocked: false;
   };
@@ -53,65 +43,6 @@ export type SalesImportPreviewResponse = {
   blockedReasons: string[];
   warnings: string[];
 };
-
-const salesImportPreviewRoleSet = new Set<string>([
-  "SALES_REP_PART_1",
-  "SALES_REP_PART_4",
-  "SALES_REP_PART_5",
-  "SALES_REP_PART_6",
-  "SALES_REP_PART_7",
-  "SALES_REP_PART_9",
-  "SALES_REP_PART_10",
-  "SALES_REP_PART_11",
-  "PART_LEAD",
-  "ADMIN",
-]);
-
-export function normalizeSalesImportPreviewRole(value?: string | null): SalesImportPreviewRole | "" {
-  const normalized = String(value ?? "").trim().toUpperCase();
-  return salesImportPreviewRoleSet.has(normalized) ? (normalized as SalesImportPreviewRole) : "";
-}
-
-export function parseManagedPartCodes(value?: string | null): string[] {
-  const parts = String(value ?? "")
-    .split(/[,\s]+/)
-    .map((part) => normalizePartCode(part))
-    .filter((part) => isSalesImportPreviewPart(part));
-  return uniqueStrings(parts);
-}
-
-export function getSalesImportPreviewAllowedParts(roleInput?: string | null, managedParts: string[] = []) {
-  const role = normalizeSalesImportPreviewRole(roleInput);
-  if (role === "ADMIN") return [...salesImportPreviewParts];
-  if (role === "PART_LEAD") return uniqueStrings(managedParts.filter((part) => isSalesImportPreviewPart(part)));
-
-  const salesRepPart = role.match(/^SALES_REP_PART_(\d+)$/)?.[1] ?? "";
-  return isSalesImportPreviewPart(salesRepPart) ? [salesRepPart] : [];
-}
-
-export function validateSalesImportPreviewAccess(input: {
-  role?: string | null;
-  partCode?: string | null;
-  managedParts?: string[];
-}): SalesImportPreviewAccessResult {
-  const role = normalizeSalesImportPreviewRole(input.role);
-  const partCode = normalizePartCode(input.partCode);
-  const allowedParts = getSalesImportPreviewAllowedParts(role, input.managedParts ?? []);
-
-  if (!role) {
-    return { ok: false, role, partCode, allowedParts, blockedReasons: ["ROLE_REQUIRED"] };
-  }
-
-  if (!isSalesImportPreviewPart(partCode)) {
-    return { ok: false, role, partCode, allowedParts, blockedReasons: ["PART_REQUIRED"] };
-  }
-
-  if (!allowedParts.includes(partCode)) {
-    return { ok: false, role, partCode, allowedParts, blockedReasons: ["PART_SCOPE_FORBIDDEN"] };
-  }
-
-  return { ok: true, role, partCode, allowedParts, blockedReasons: [] };
-}
 
 export function isSupportedSalesImportPreviewFile(fileName: string, options: { allowJsonFixture?: boolean } = {}) {
   const allowed = options.allowJsonFixture ? /\.(xls|xlsx|json)$/i : /\.(xls|xlsx)$/i;
@@ -222,12 +153,4 @@ function normalizePeriodMonth(value?: string | null) {
 
 function isValidDay(value: number) {
   return Number.isInteger(value) && value >= 1 && value <= 31;
-}
-
-function isSalesImportPreviewPart(value: string): value is (typeof salesImportPreviewParts)[number] {
-  return salesImportPreviewParts.includes(value as (typeof salesImportPreviewParts)[number]);
-}
-
-function uniqueStrings(values: string[]) {
-  return [...new Set(values.filter(Boolean))];
 }

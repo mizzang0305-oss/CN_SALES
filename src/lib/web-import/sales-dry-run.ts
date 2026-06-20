@@ -1,6 +1,6 @@
 import type { OperationalPreviewSummary } from "@/lib/import/preview-checksum";
 import type { LedgerSyncDiffPlan } from "@/lib/import/sync-diff";
-import type { SalesImportPreviewAccessResult } from "@/lib/web-import/sales-preview";
+import type { SalesPartAccessResult } from "@/lib/auth/part-access";
 
 export type SalesImportDryRunContractInput = {
   fileHash?: string | null;
@@ -107,7 +107,7 @@ export function createSalesImportDryRunResponse(input: {
   operationalSummary: OperationalPreviewSummary;
   syncDiff: LedgerSyncDiffPlan;
   amountBefore: number;
-  access: SalesImportPreviewAccessResult;
+  access: SalesPartAccessResult;
 }): SalesImportDryRunResponse {
   const amountAfter = input.operationalSummary.amountTotal;
 

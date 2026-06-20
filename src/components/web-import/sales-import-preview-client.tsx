@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertCircle, FileSpreadsheet, ShieldCheck, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatNumber, formatWon } from "@/lib/format";
+import { salesImportRoles, supportedSalesPartCodes } from "@/lib/auth/part-access";
 
 type PreviewResponse = {
   ok: true;
@@ -83,20 +84,8 @@ type DryRunError = {
   rawRowsReturned?: false;
 };
 
-const roles = [
-  "SALES_REP_PART_1",
-  "SALES_REP_PART_4",
-  "SALES_REP_PART_5",
-  "SALES_REP_PART_6",
-  "SALES_REP_PART_7",
-  "SALES_REP_PART_9",
-  "SALES_REP_PART_10",
-  "SALES_REP_PART_11",
-  "PART_LEAD",
-  "ADMIN",
-];
-
-const parts = ["", "1", "4", "5", "6", "7", "9", "10", "11"];
+const roles = [...salesImportRoles];
+const parts = ["", ...supportedSalesPartCodes];
 
 export function SalesImportPreviewClient() {
   const [file, setFile] = useState<File | null>(null);
@@ -269,6 +258,9 @@ export function SalesImportPreviewClient() {
           <Button type="button" onClick={runDryRun} disabled={!preview || !file || isDryRunning} className="h-11 w-full" variant="outline">
             {isDryRunning ? "Running dry-run" : "Dry-run"}
           </Button>
+          <Button type="button" disabled className="h-11 w-full" variant="outline" data-sync-disabled="true">
+            Sync requires approval
+          </Button>
 
           {file ? <div className="break-all rounded-md bg-slate-50 p-3 text-[14px] text-slate-600">{file.name}</div> : null}
           {error ? (
@@ -333,6 +325,15 @@ export function SalesImportPreviewClient() {
                 `filePart: ${preview.filePart || "-"}`,
                 `blockedReasons: ${preview.blockedReasons.join(", ") || "-"}`,
                 `warnings: ${preview.warnings.join(", ") || "-"}`,
+              ]}
+            />
+            <InfoPanel
+              title="Sync approval"
+              lines={[
+                "status: approval required",
+                `roleScope: ${preview.permission.role} -> ${preview.permission.allowedParts.join(", ") || "-"}`,
+                "syncEnabled: false",
+                "applyEnabled: false",
               ]}
             />
 
