@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircle, FileSpreadsheet, ShieldCheck, UploadCloud } from "lucide-react";
+import { AlertCircle, FileSpreadsheet, LockKeyhole, ShieldCheck, UploadCloud, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatNumber, formatWon } from "@/lib/format";
 import { salesImportRoles, supportedSalesPartCodes } from "@/lib/auth/part-access";
@@ -259,8 +259,29 @@ export function SalesImportPreviewClient() {
             {isDryRunning ? "Running dry-run" : "Dry-run"}
           </Button>
           <Button type="button" disabled className="h-11 w-full" variant="outline" data-sync-disabled="true">
+            <LockKeyhole className="size-4" />
             Sync requires approval
           </Button>
+
+          <div className="rounded-md border border-slate-200 p-3" data-readiness-state="local-only-disabled-sync">
+            <div className="flex items-center gap-2 text-[15px] font-semibold text-slate-900">
+              <UserCheck className="size-4" />
+              Import readiness
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <StatusBadge label="Preview" value="ready" tone="ready" />
+              <StatusBadge label="Dry-run" value={preview ? "ready" : "after preview"} tone={preview ? "ready" : "waiting"} />
+              <StatusBadge label="Sync" value="disabled" tone="blocked" />
+              <StatusBadge label="Rows" value="aggregate only" tone="ready" />
+            </div>
+            <ul className="mt-3 space-y-1 text-[14px] leading-6 text-slate-600">
+              <li>{roleReadinessLine(role, managedParts)}</li>
+              <li>ADMIN all-part preview and dry-run are allowed for supported parts.</li>
+              <li>SALES_REP_PART_N preview and dry-run are limited to the assigned part.</li>
+              <li>rawRowsReturned: false</li>
+              <li>syncEnabled: false</li>
+            </ul>
+          </div>
 
           {file ? <div className="break-all rounded-md bg-slate-50 p-3 text-[14px] text-slate-600">{file.name}</div> : null}
           {error ? (
@@ -331,7 +352,10 @@ export function SalesImportPreviewClient() {
               title="Sync approval"
               lines={[
                 "status: approval required",
+                "stage: W-6 disabled sync contract",
                 `roleScope: ${preview.permission.role} -> ${preview.permission.allowedParts.join(", ") || "-"}`,
+                "schemaApproval: WEB_ERP_XLS_SYNC_SCHEMA_APPLY_APPROVED required",
+                "executionApproval: WEB_ERP_XLS_SYNC_EXECUTE_APPROVED required",
                 "syncEnabled: false",
                 "applyEnabled: false",
               ]}
@@ -340,6 +364,7 @@ export function SalesImportPreviewClient() {
             {dryRun ? (
               <div className="space-y-3 rounded-md border border-slate-200 p-3">
                 <div className="text-[16px] font-semibold text-slate-900">Dry-run</div>
+                <ChangeSummaryStrip dryRun={dryRun} />
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   <Metric label="Primary scope rows" value={formatNumber(dryRun.primaryScopeRows)} />
                   <Metric label="Existing scoped rows" value={formatNumber(dryRun.existingScopedRows)} />
@@ -371,6 +396,7 @@ export function SalesImportPreviewClient() {
                   title="Current view sync plan"
                   lines={[
                     "status: W-5 approval required",
+                    "status: W-6 sync API disabled",
                     `insert: ${formatNumber(dryRun.insertCandidates)}`,
                     `update: ${formatNumber(dryRun.updateCandidates)}`,
                     `removedFromCurrent: ${formatNumber(dryRun.removedFromCurrentCandidates)}`,
@@ -378,6 +404,17 @@ export function SalesImportPreviewClient() {
                     `amountDelta: ${formatWon(dryRun.amountDelta)}`,
                     "physicalDelete: false",
                     "syncEnabled: false",
+                  ]}
+                />
+                <InfoPanel
+                  title="Operator readiness"
+                  lines={[
+                    `permission: ${dryRun.permission.role} allowed for ${dryRun.permission.allowedParts.join(", ") || "-"}`,
+                    `changeSummary: insert ${formatNumber(dryRun.insertCandidates)}, update ${formatNumber(dryRun.updateCandidates)}, removed ${formatNumber(dryRun.removedFromCurrentCandidates)}, noChange ${formatNumber(dryRun.noChangeRows)}`,
+                    `amountDelta: ${formatWon(dryRun.amountDelta)}`,
+                    `planReady: ${String(dryRun.planReady)}`,
+                    "raw row table: not available",
+                    "sync execution: disabled until explicit approval",
                   ]}
                 />
               </div>
@@ -413,6 +450,53 @@ function InfoPanel({ title, lines }: { title: string; lines: string[] }) {
       </ul>
     </div>
   );
+}
+
+function ChangeSummaryStrip({ dryRun }: { dryRun: DryRunResponse }) {
+  const summaryCards = [
+    { label: "Insert", value: formatNumber(dryRun.insertCandidates), tone: "ready" as const },
+    { label: "Update", value: formatNumber(dryRun.updateCandidates), tone: "waiting" as const },
+    { label: "Removed", value: formatNumber(dryRun.removedFromCurrentCandidates), tone: "blocked" as const },
+    { label: "No change", value: formatNumber(dryRun.noChangeRows), tone: "ready" as const },
+    { label: "Amount delta", value: formatWon(dryRun.amountDelta), tone: dryRun.amountDelta === 0 ? "ready" as const : "waiting" as const },
+  ];
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5" data-change-summary="aggregate-only">
+      {summaryCards.map((item) => (
+        <div key={item.label} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="text-[13px] font-medium text-slate-500">{item.label}</div>
+          <div className="mt-1 text-[18px] font-semibold text-slate-950">{item.value}</div>
+          <div className="mt-2">
+            <StatusBadge label="state" value={item.tone} tone={item.tone} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatusBadge({ label, value, tone }: { label: string; value: string; tone: "ready" | "waiting" | "blocked" }) {
+  const toneClass = {
+    ready: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    waiting: "border-amber-200 bg-amber-50 text-amber-800",
+    blocked: "border-slate-300 bg-slate-100 text-slate-700",
+  }[tone];
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[13px] font-semibold ${toneClass}`}>
+      <span>{label}</span>
+      <span aria-hidden="true">/</span>
+      <span>{value}</span>
+    </span>
+  );
+}
+
+function roleReadinessLine(role: string, managedParts: string) {
+  if (role === "ADMIN") return "Current role: ADMIN, all supported parts allowed.";
+  if (role === "PART_LEAD") return `Current role: PART_LEAD, managed parts ${managedParts || "-"} allowed.`;
+  const assignedPart = role.match(/^SALES_REP_PART_(\d+)$/)?.[1] ?? "-";
+  return `Current role: ${role}, assigned part ${assignedPart} only.`;
 }
 
 function shortHash(value: string) {
