@@ -8,7 +8,7 @@ const syncScopeRoutePath = join(process.cwd(), "src", "app", "api", "sales-impor
 const importClientSource = readFileSync(join(process.cwd(), "src", "components", "web-import", "sales-import-preview-client.tsx"), "utf8");
 
 describe("W-5A schema decision and sync approval packet docs", () => {
-  it("documents the recommended current-view schema decision without adding a migration", () => {
+  it("documents the recommended current-view schema decision and preserves no-apply status", () => {
     expect(existsSync(schemaPlanPath)).toBe(true);
     const schemaPlan = readFileSync(schemaPlanPath, "utf8");
 
@@ -20,7 +20,9 @@ describe("W-5A schema decision and sync approval packet docs", () => {
     expect(schemaPlan).toContain("sales_change_audit_logs");
     expect(schemaPlan).toContain("WEB_ERP_XLS_SYNC_SCHEMA_APPLY_APPROVED");
     expect(schemaPlan).toContain("migration applied: no");
-    expect(existsSync(join(process.cwd(), "supabase", "migrations", "0005_web_erp_xls_sync_current_view.sql"))).toBe(false);
+    const draftMigrationPath = join(process.cwd(), "supabase", "migrations", "0005_web_erp_xls_sync_current_view.sql");
+    expect(existsSync(draftMigrationPath)).toBe(true);
+    expect(readFileSync(draftMigrationPath, "utf8")).toContain("W-5B DRAFT ONLY");
   });
 
   it("documents the execution approval packet and keeps sync unapproved", () => {
@@ -35,8 +37,11 @@ describe("W-5A schema decision and sync approval packet docs", () => {
     expect(approvalPacket).toContain("DB write implemented: no");
   });
 
-  it("does not add a sync-scope endpoint or enabled sync UI", () => {
-    expect(existsSync(syncScopeRoutePath)).toBe(false);
+  it("adds only a disabled sync-scope endpoint and no enabled sync UI", () => {
+    expect(existsSync(syncScopeRoutePath)).toBe(true);
+    const syncScopeRoute = readFileSync(syncScopeRoutePath, "utf8");
+    expect(syncScopeRoute).toContain("approval_required");
+    expect(syncScopeRoute).toContain("syncEnabled: false");
     expect(importClientSource).toContain('data-sync-disabled="true"');
     expect(importClientSource).not.toContain("/api/sales-import/sync-scope");
     expect(importClientSource).not.toContain("runSync");
